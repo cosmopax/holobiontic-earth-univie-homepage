@@ -3,5 +3,16 @@
     "site_tagline": "University of Vienna",
     "meta_description": "Holobiontic Earth Research",
     "domain": "https://holobiontic-earth.univie.ac.at",
-    "layout_variant": "standard"
+    "layout_variant": "standard",
+    "manifesto": "We are the Symbiosis...",
+    "theme": {
+        "primary": "#1a472a",
+        "primary_dark": "#0d2615",
+        "primary_bright": "#2d7a46",
+        "background": "#e6f5e9",
+        "paper": "#f1fcf4",
+        "accent": "#c15b28",
+        "text_main": "#0a1f12",
+        "text_muted": "#2c4a3b"
+    }
 }
