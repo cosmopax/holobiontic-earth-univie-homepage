@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Any
@@ -55,7 +56,7 @@ PLACEHOLDER_IMAGES = {
     "placeholder-grid.svg": "Project grid placeholder",
 }
 
-NAV_SLUGS = ["", "about", "research", "projects", "digest", "blog", "contact"]
+NAV_SLUGS = ["", "about", "research", "team", "publications", "projects", "digest", "blog", "contact"]
 
 
 def _escape(text: str) -> str:
@@ -284,6 +285,8 @@ def _resolve_image_src(raw_image: str, current_path: Path) -> str:
     image = (raw_image or "").strip()
     if not image:
         image = "placeholder-hero.svg"
+    if image.startswith(("http://", "https://")):
+        return image
     if image.startswith("assets/"):
         return _rel_link(current_path, Path(image))
     return _rel_link(current_path, Path("assets/img") / image)
@@ -556,11 +559,41 @@ def _render_header(current_slug: str, pages: dict[str, dict[str, object]], curre
     # Dynamic Logo
     logo_text = str(site.get("logo_text") or site.get("site_name") or "ALI")
 
+    # Burger Menu construction
+    burger_nav_items = []
+    for slug in NAV_SLUGS:
+        if slug not in pages: continue
+        t = pages[slug]["title"]
+        h = _rel_page_link(current_path, slug)
+        burger_nav_items.append(f'<a href="{_escape(h)}">{_escape(t)}</a>')
+    
+    # Add footer-like links to burger
+    burger_nav_items.append('<hr>')
+    burger_nav_items.append(f'<a href="{_escape(cta_href)}">{_escape(cta_text)}</a>')
+
     return f"""
+<div class="construction-banner">
+  <span>🚧 <strong>Beta Protocol:</strong> This platform is evolving live. Content is provisional.</span>
+</div>
 <header class="site-header">
-  <a class="logo" href="{_escape(_rel_page_link(current_path, ""))}">{_escape(logo_text)}</a>
+  <div class="header-left">
+      <a class="logo" href="{_escape(_rel_page_link(current_path, ""))}">{_escape(logo_text)}</a>
+  </div>
   <nav class="nav">{''.join(nav_links)}</nav>
-  <a class="cta" href="{_escape(cta_href)}">{_escape(cta_text)}</a>
+  <div class="header-right">
+      <a class="cta" href="{_escape(cta_href)}">{_escape(cta_text)}</a>
+      <button class="burger-toggle" aria-label="Toggle Navigation" aria-controls="burger-menu" aria-expanded="false" onclick="toggleBurgerMenu()">
+        <span></span><span></span><span></span>
+      </button>
+  </div>
+  <!-- Burger Overlay -->
+  <div class="burger-menu-overlay" id="burger-menu" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Site navigation" aria-describedby="burger-description">
+      <button class="burger-close" type="button" aria-label="Close navigation" onclick="toggleBurgerMenu()">&times;</button>
+      <p id="burger-description" class="sr-only">Site navigation menu. Press Escape to close.</p>
+      <nav class="burger-nav">
+          {''.join(burger_nav_items)}
+      </nav>
+  </div>
 </header>
 """
 
@@ -609,6 +642,14 @@ def _render_section(
         return _render_contact_form(section, current_path)
     if kind == "digest_list":
         return _render_digest_list(section, current_path, digests)
+    if kind == "project_grid_v2":
+        return _render_project_grid_v2(section, current_path, pages)
+    if kind == "team_grid":
+        return _render_team_grid(section, current_path)
+    if kind == "pub_list":
+        return _render_pub_list(section, current_path)
+    if kind == "research_grid":
+        return _render_research_grid(section, current_path)
     heading = _escape(section.get("title", ""))
     body = _render_markdown(_read_block(section.get("source_md", "")))
     cta_text = _escape(section.get("cta_text", ""))
@@ -633,9 +674,7 @@ def _render_section(
 </section>
 """
 
-
-
-def _render_project_grid_v2(section: dict[str, str], current_path: Path) -> str:
+def _render_project_grid_v2(section: dict[str, str], current_path: Path, pages: dict[str, dict[str, object]]) -> str:
     projects_path = CONTENT_DIR / "projects.json"
     if not projects_path.exists():
         return "<p>Missing projects.json</p>"
@@ -644,70 +683,135 @@ def _render_project_grid_v2(section: dict[str, str], current_path: Path) -> str:
     if not isinstance(projects, list):
         return "<p>Invalid projects.json format</p>"
     
-    cards = []
+    upper_cards = []
+    lower_cards = []
     overlays = []
+    overlay_cache: dict[str, str] = {}
+    image_cache: dict[str, str] = {}
+    tile_index = 0
     
     for proj in projects:
         t = proj.get("title", "")
         desc = proj.get("description", "")
         img_raw = proj.get("image", "")
-        img = _resolve_image_src(img_raw, current_path)
-        p_type = proj.get("type", "link")
+        img_key = str(img_raw or "")
+        img = image_cache.get(img_key)
+        if img is None:
+            img = _resolve_image_src(img_raw, current_path)
+            image_cache[img_key] = img
+        p_type = str(proj.get("type") or "link").lower()
         p_id = proj.get("id", "")
-        keywords = proj.get("keywords", [])
-        if isinstance(keywords, list):
-            keywords = ", ".join(keywords)
+        tier = str(proj.get("tier") or ("upper" if p_type == "overlay" else "lower")).lower()
+        deck = proj.get("deck") or []
+        if not isinstance(deck, list):
+            deck = []
+        deck_images = [str(item) for item in deck if item]
+        primary_image = img
+        alt_image = ""
+        if deck_images:
+            primary_image = _resolve_image_src(deck_images[0], current_path)
+            if len(deck_images) > 1:
+                alt_image = _resolve_image_src(deck_images[1], current_path)
+        keywords_raw = proj.get("keywords", "")
+        keywords_list: list[str] = []
+        if isinstance(keywords_raw, list):
+            keywords_list = [str(item) for item in keywords_raw if item]
+        elif keywords_raw:
+            keywords_list = [str(keywords_raw)]
             
         action_attr = ""
         link_target = "#"
         
-        if p_type == "link":
-            link_target = proj.get("target", "#")
-            action_attr = f'target="_blank"' 
-        elif p_type == "overlay":
+        if p_type == "overlay":
             link_target = "#"
             action_attr = f'data-type="overlay" data-overlay-id="{p_id}"'
+        else:
+            target = str(proj.get("target") or "#").strip()
+            if target in pages:
+                link_target = _rel_page_link(current_path, target)
+            else:
+                link_target = target
+            if link_target.startswith(("http://", "https://")):
+                action_attr = 'target="_blank" rel="noopener"'
+        
+        if p_type == "overlay":
+            # Pre-render overlay content
             content_file = proj.get("content_file", "")
             overlay_body = ""
             if content_file:
-                overlay_body = _render_markdown(_read_block(content_file))
+                cached = overlay_cache.get(content_file)
+                if cached is None:
+                    cached = _render_markdown(_read_block(content_file))
+                    overlay_cache[content_file] = cached
+                overlay_body = cached
             
+            title_id = f"overlay-title-{p_id}"
+            body_id = f"overlay-body-{p_id}"
             overlays.append(f"""
-<div class="project-overlay" id="overlay-{p_id}">
+<div class="project-overlay" id="overlay-{p_id}" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="{_escape(title_id)}" aria-describedby="{_escape(body_id)}">
   <div class="overlay-backdrop" data-close-overlay></div>
   <div class="overlay-content">
-    <button class="overlay-close" data-close-overlay>&times;</button>
+    <button class="overlay-close" type="button" aria-label="Close project details" data-close-overlay>&times;</button>
     <div class="overlay-scroll">
-      <h2>{_escape(t)}</h2>
+      <h2 id="{_escape(title_id)}">{_escape(t)}</h2>
       <img src="{_escape(img)}" alt="{_escape(t)}" class="overlay-hero">
-      <div class="overlay-body">{overlay_body}</div>
+      <div class="overlay-body" id="{_escape(body_id)}">{overlay_body}</div>
     </div>
   </div>
 </div>""")
 
-        cards.append(f"""
-<a href="{link_target}" class="project-card-v2 scroll-reveal" {action_attr}>
-  <div class="card-bg" data-bg="{_escape(img)}"></div>
-  <div class="card-content">
-    <h3>{_escape(t)}</h3>
-    <p class="keywords">{_escape(keywords)}</p>
-    <div class="card-hover-reveal">
-      <p>{_escape(desc)}</p>
+        keyword_html = "".join(f"<span>{_escape(item)}</span>" for item in keywords_list)
+        keywords_block = f"<div class=\"tile-keywords\">{keyword_html}</div>" if keyword_html else ""
+        action_label = "Expand" if p_type == "overlay" else "Open"
+        if link_target.startswith(("http://", "https://")):
+            action_label = "Visit"
+        alt_media = ""
+        tile_class = f"profile-tile profile-tile--{_escape(tier)} project-card-v2 scroll-reveal"
+        float_offset = f"{(tile_index % 7) * 0.55:.2f}"
+        tile_style_parts = [f"--float-offset: {float_offset};"]
+        if alt_image:
+            alt_media = f"<div class=\"tile-media tile-media--alt\" style=\"background-image: url('{_escape(alt_image)}')\"></div>"
+            tile_class += " has-deck"
+            deck_delay = f"{(tile_index % 4) * 1.5:.1f}s"
+            tile_style_parts.append(f"--deck-delay: {deck_delay};")
+        tile_style = f" style=\"{' '.join(tile_style_parts)}\""
+        card_html = f"""
+<a href="{link_target}" class="{tile_class}" data-tier="{_escape(tier)}"{tile_style} {action_attr}>
+  <span class="tile-stack tile-stack--one"></span>
+  <span class="tile-stack tile-stack--two"></span>
+  <div class="tile-surface">
+    <div class="tile-media" style="background-image: url('{_escape(primary_image)}')"></div>
+    {alt_media}
+    <div class="tile-scrim"></div>
+    <div class="tile-content">
+      <h3>{_escape(t)}</h3>
+      {keywords_block}
+      <span class="tile-action">{action_label}</span>
     </div>
   </div>
-</a>""")
+</a>"""
+        tile_index += 1
+        if tier == "upper":
+            upper_cards.append(card_html)
+        else:
+            lower_cards.append(card_html)
 
-    grid_html = "".join(cards)
+    upper_html = "".join(upper_cards)
+    lower_html = "".join(lower_cards)
     overlays_html = "".join(overlays)
+    
     section_id = _escape(section.get("section_id", "projects"))
     heading = _escape(section.get("title", "Projects"))
+    upper_row = f"<div class=\"profile-row profile-row--upper\">{upper_html}</div>" if upper_html else ""
+    lower_row = f"<div class=\"profile-row profile-row--lower\">{lower_html}</div>" if lower_html else ""
     
     return f"""
 <section class="content-section project-grid-section" id="{section_id}">
   <div class="v2-grid-container">
     <h2>{heading}</h2>
-    <div class="project-grid-v2-wrapper">
-      {grid_html}
+    <div class="profile-tiles">
+      {upper_row}
+      {lower_row}
     </div>
   </div>
   {overlays_html}
@@ -745,6 +849,42 @@ def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
     <h2>{heading}</h2>
     <div class="team-grid">
       {"".join(cards)}
+    </div>
+  </div>
+</section>
+"""
+
+def _render_pub_list(section: dict[str, str], current_path: Path) -> str:
+    path = CONTENT_DIR / "publications.json"
+    if not path.exists(): return "<p>Missing publications.json</p>"
+    items = json.loads(path.read_text(encoding="utf-8"))
+    
+    rows = []
+    for p in items:
+        title = _escape(p.get("title", ""))
+        authors = _escape(p.get("authors", ""))
+        venue = _escape(p.get("venue", ""))
+        year = _escape(p.get("year", ""))
+        link = _escape(p.get("link", "#"))
+        
+        rows.append(f"""
+<div class="pub-row scroll-reveal">
+  <div class="pub-year">{year}</div>
+  <div class="pub-content">
+    <a href="{link}" class="pub-title" target="_blank">{title}</a>
+    <div class="pub-meta">{authors} — <span class="venue">{venue}</span></div>
+  </div>
+</div>""")
+
+    section_id = _escape(section.get("section_id", "publications"))
+    heading = _escape(section.get("title", "Publications"))
+    
+    return f"""
+<section class="content-section pub-section" id="{section_id}">
+  <div class="v2-grid-container">
+    <h2>{heading}</h2>
+    <div class="pub-list">
+      {"".join(rows)}
     </div>
   </div>
 </section>
@@ -788,7 +928,6 @@ def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
   </div>
 </section>
 """
-
 
 def _render_linkhub_links(links: list[dict[str, str]]) -> str:
     if not links:
@@ -944,10 +1083,27 @@ def _render_digest_page(digest: dict[str, str], pages: dict[str, dict[str, objec
     footer = _render_footer(site, pages, current_path, links)
     back_link = _rel_page_link(current_path, "digest")
     body_html = _render_markdown(_read_block(digest.get("source_md", "")))
+    
+    # Search UI
+    search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
+    search_ui = f"""
+  <div class="search-container">
+    <div class="search-box">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
+        <span class="search-shortcut">Ctrl+K</span>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+"""
+    
     doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''))}
-<body class="layout-{_escape(layout_variant)}" data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
+{_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css)}
+<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
+  {search_ui}
   <div class="page-shell">
     {header}
     <main>
@@ -968,6 +1124,7 @@ def _render_digest_page(digest: dict[str, str], pages: dict[str, dict[str, objec
     {footer}
   </div>
   <script src="{_escape(_rel_link(current_path, Path('assets/js/main.js')))}"></script>
+  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
 </body>
 </html>
 """
@@ -985,10 +1142,27 @@ def _render_blog_post(post: dict[str, str], pages: dict[str, dict[str, object]])
     footer = _render_footer(site, pages, current_path, _read_links())
     back_link = _rel_page_link(current_path, "blog")
     body_html = _render_paragraphs(post.get("body", ""))
+    
+    # Search UI
+    search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
+    search_ui = f"""
+  <div class="search-container">
+    <div class="search-box">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
+        <span class="search-shortcut">Ctrl+K</span>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+"""
+    
     doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(post.get('title', ''), css_href, _read_site_config().get('meta_description', ''))}
+{_render_head(post.get('title', ''), css_href, _read_site_config().get('meta_description', ''), extra_css=search_css)}
 <body data-newsletter-mode="{_escape(_read_site_config().get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(_read_site_config().get('newsletter_provider_url', ''))}">
+  {search_ui}
   <div class="page-shell">
     {header}
     <main>
@@ -1009,6 +1183,7 @@ def _render_blog_post(post: dict[str, str], pages: dict[str, dict[str, object]])
     {footer}
   </div>
   <script src="{_escape(_rel_link(current_path, Path('assets/js/main.js')))}"></script>
+  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
 </body>
 </html>
 """
@@ -1089,31 +1264,76 @@ def _build_css(site: dict[str, Any]) -> str:
         .module-header {{ border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-bottom: 1rem; font-weight: bold; color: var(--primary); }}
         """
 
-    elif layout_variant == "holobiontic":
+    elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
         theme_overrides = f"""
-        /* Holobiontic / Bio Theme */
+        /* Holobiontic / Bio Theme (Living Upgrade) */
         body {{
-            background-color: {cream};
+            background-color: #0a1f12; /* Deep Forest */
+            color: #e0eadd;
+            background-image: radial-gradient(circle at 50% 50%, #1a472a 0%, #0a1f12 100%);
         }}
+        :root {{
+            --primary: #2d7a46;
+            --primary-dark: #0a1f12;
+            --primary-bright: #4ade80;
+            --accent: #c15b28;
+            --card: rgba(20, 50, 30, 0.6);
+            --card-border: rgba(45, 122, 70, 0.3);
+            --text-main: #e0eadd;
+            --text-muted: #8ba390;
+        }}
+        
         .site-header {{
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(45, 122, 70, 0.2);
+            background: rgba(10, 31, 18, 0.85);
+            border-bottom: 1px solid var(--card-border);
         }}
-        h1, h2, h3 {{ color: {primary_dark}; font-family: "Fraunces", serif; }}
-        .card {{
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid rgba(45, 122, 70, 0.2);
-            box-shadow: 0 4px 20px rgba(45, 122, 70, 0.05);
-            border-radius: 12px;
+        
+        /* Bio-Field Animations */
+        .bio-field {{
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 0;
         }}
-        .button {{
-            background: linear-gradient(135deg, {primary_bright}, {primary_dark});
-            border-radius: 20px;
-            font-family: var(--font-body);
-            letter-spacing: 0.05em;
+        .bio-halo {{
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60vw; height: 60vw;
+            background: radial-gradient(circle, rgba(45, 122, 70, 0.15) 0%, transparent 70%);
+            animation: breathe 8s ease-in-out infinite;
         }}
-        .image-frame img {{ border-radius: 12px; }}
+        .bio-spores span {{
+            position: absolute;
+            width: var(--s); height: var(--s);
+            background: var(--primary-bright);
+            border-radius: 50%;
+            opacity: 0.6;
+            left: var(--x); top: var(--y);
+            box-shadow: 0 0 10px var(--primary-bright);
+            animation: float 10s ease-in-out infinite;
+            animation-delay: var(--d);
+        }}
+        
+        @keyframes breathe {{
+            0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.5; }}
+            50% {{ transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }}
+        }}
+        @keyframes float {{
+            0%, 100% {{ transform: translateY(0); opacity: 0.4; }}
+            50% {{ transform: translateY(-20px); opacity: 0.8; }}
+        }}
+        
+        /* Organic Cards */
+        .card, .profile-card, .content-block {{
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+        }}
+        .hero-inner {{ position: relative; z-index: 2; }}
         """
 
     return f"""
@@ -1139,272 +1359,573 @@ def _build_css(site: dict[str, Any]) -> str:
   --glass: rgba(255, 255, 255, 0.6);
   --shadow: {primary_dark}1a;
   
-  --font-heading: "Fraunces", serif;
-  --font-body: "DM Sans", sans-serif;
+  --font-heading: "Cormorant Garamond", serif;
+  --font-body: "Outfit", sans-serif;
   --radius: 8px;
   --max-width: 1200px;
 }}
 
-/* Base */
+/* Base & Reset */
+*, *::before, *::after {{ box-sizing: border-box; }}
+html {{ scroll-behavior: smooth; }}
 body {{
   margin: 0;
   font-family: var(--font-body);
   background: var(--paper);
   color: var(--text-main);
-  line-height: 1.6;
+  line-height: 1.7;
+  font-feature-settings: "kern", "liga", "clig", "calt";
   transition: background-color 0.3s, color 0.3s;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }}
 
 /* Typography */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=Fira+Code:wght@400;500&family=Playfair+Display:wght@400;700&display=swap');
 
-h1, h2, h3 {{
+h1, h2, h3, h4, h5, h6 {{
   font-family: var(--font-heading);
   color: var(--primary);
-  margin-top: 0;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  line-height: 1.2;
 }}
 
-h1 {{ font-size: 3.5rem; letter-spacing: -0.01em; margin-bottom: 0.5rem; line-height: 1.1; }}
-h2 {{ font-size: 2.2rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--gold); display: inline-block; padding-bottom: 5px; }}
-a {{ color: var(--primary); text-decoration: none; font-weight: 500; transition: color 0.2s; }}
-a:hover {{ color: var(--primary-bright); }}
+h1 {{ font-size: clamp(2.5rem, 5vw, 4.5rem); letter-spacing: -0.02em; margin-bottom: 1rem; }}
+h2 {{ font-size: clamp(2rem, 4vw, 3rem); padding-bottom: 0.5rem; border-bottom: 1px solid var(--gold); display: inline-block; }}
+h3 {{ font-size: 1.75rem; }}
+p {{ margin-bottom: 1.5rem; max-width: 70ch; }}
+
+a {{ color: var(--primary); text-decoration: none; font-weight: 500; transition: all 0.2s ease; position: relative; }}
+a:not(.button):hover {{ color: var(--primary-bright); }}
+a:not(.button)::after {{
+    content: ''; position: absolute; width: 100%; transform: scaleX(0); height: 1px; bottom: -2px; left: 0;
+    background-color: var(--primary-bright); transform-origin: bottom right; transition: transform 0.25s ease-out;
+}}
+a:not(.button):hover::after {{ transform: scaleX(1); transform-origin: bottom left; }}
 
 /* Layout */
 .page-shell {{ min-height: 100vh; display: flex; flex-direction: column; }}
-main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); margin: 0 auto; padding-left: 5vw; padding-right: 5vw; box-sizing: border-box; }}
+main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); margin: 0 auto; padding-left: 5vw; padding-right: 5vw; }}
 
 /* Header */
 .site-header {{
   position: fixed;
+  top: 0; left: 0; width: 100%;
+  padding: 1rem 5vw;
+  display: flex; justify-content: space-between; align-items: center;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  transition: all 0.3s ease;
+}}
+.site-header.scrolled {{ padding: 0.75rem 5vw; background: rgba(255, 255, 255, 0.95); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }}
+
+.logo {{ font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); letter-spacing: 0.05em; text-transform: uppercase; }}
+.nav {{ display: flex; gap: 2rem; }}
+.nav a {{ color: var(--text-muted); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.1em; font-weight: 600; }}
+.nav a:hover, .nav a.active {{ color: var(--primary); }}
+.nav a::after {{ display: none; }} /* Disable underline for nav items */
+
+/* Burger Menu */
+.header-right {{ display: flex; align-items: center; gap: 1rem; }}
+.burger-toggle {{
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 30px;
+  height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  z-index: 1001;
+}}
+.burger-toggle span {{
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: var(--text-main);
+  transition: transform 0.3s ease;
+}}
+.burger-menu-overlay {{
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  padding: 15px 5vw;
-  box-sizing: border-box;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background: rgba(10, 10, 10, 0.95);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   z-index: 1000;
-  background: var(--header-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--card-border);
-}}
-
-.logo {{
-  font-family: var(--font-heading);
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}}
-
-.nav {{ display: flex; gap: 30px; }}
-.nav a {{ color: var(--text-muted); text-transform: uppercase; font-size: 13px; letter-spacing: 0.1em; font-weight: 600; }}
-.nav a:hover, .nav a.active {{ color: var(--primary); }}
-.cta {{
-  padding: 10px 22px;
-  border-radius: 999px;
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 12px;
-  font-weight: 600;
-}}
-.cta:hover {{ background: var(--primary); color: #fff; }}
-
-/* Hero */
-.hero, .page-hero {{
-  position: relative;
-  padding: 120px 0 80px;
-}}
-.page-hero {{ padding: 80px 0 40px; }}
-.page-hero-inner {{ max-width: 900px; }}
-.hero-inner {{
-  display: grid;
-  gap: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  position: relative;
-  z-index: 2;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6rem 2rem 3rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
 }}
-@media (min-width: 900px) {{
-  .hero-inner {{ grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); }}
+.burger-menu-overlay.active {{
+  opacity: 1;
+  pointer-events: all;
 }}
-.hero-orbit {{
+.burger-close {{
   position: absolute;
-  inset: -40% auto auto -10%;
-  width: 520px;
-  height: 520px;
-  border-radius: 50%;
-  border: 1px solid var(--card-border);
-  opacity: 0.5;
+  top: 2rem;
+  right: 2rem;
+  font-size: 3rem;
+  background: none;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
 }}
-.eyebrow {{
-  font-size: 12px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  font-weight: 600;
-  margin: 0 0 12px;
+.burger-nav {{
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  text-align: center;
 }}
-.subtitle {{
-  font-size: 1.1rem;
-  color: var(--text-muted);
-  margin: 0 0 18px;
+.burger-nav a {{
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  color: var(--text-main);
+  text-decoration: none;
+  transition: color 0.3s ease;
 }}
-.hero-actions {{
+.burger-nav a:hover {{
+  color: var(--gold);
+}}
+.burger-nav hr {{
+  width: 50%;
+  margin: 1rem auto;
+  border: 0;
+  border-top: 1px solid var(--card-border);
+}}
+
+/* Profile Tiles */
+.profile-tiles {{
+  display: grid;
+  gap: 2rem;
+  margin-top: 2.5rem;
+}}
+.profile-row {{
+  gap: 1.5rem;
+}}
+.profile-row--upper {{
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
+  align-items: stretch;
+  perspective: 1200px;
 }}
-.hero-art {{ display: grid; gap: 16px; }}
-.hero-metrics {{
+.profile-row--lower {{
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 14px;
-  font-size: 0.9rem;
-  color: var(--text-muted);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }}
-.hero-metrics span {{
-  display: block;
-  font-size: 1.6rem;
-  font-weight: 600;
-  color: var(--primary);
-  letter-spacing: -0.01em;
+.profile-tile {{
+  --tile-tilt-x: 0deg;
+  --tile-tilt-y: 0deg;
+  --glow-x: 50%;
+  --glow-y: 25%;
+  --float-x: 0px;
+  --float-y: 0px;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 240px;
+  border-radius: 18px;
+  overflow: visible;
+  color: #f8f7f4;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 24px 50px -30px rgba(0, 0, 0, 0.6);
+  transform-style: preserve-3d;
+  transition: transform 0.4s ease, box-shadow 0.4s ease, border-color 0.4s ease, flex 0.45s ease;
+  transform: translate3d(var(--float-x), var(--float-y), 0) rotateX(var(--tile-tilt-x)) rotateY(var(--tile-tilt-y));
 }}
-
-/* Content blocks */
-.content-block {{
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius);
-  padding: 32px;
-  box-shadow: 0 12px 30px -24px var(--shadow);
-}}
-.page-body {{ margin-bottom: 60px; }}
-
-/* Reveal */
-.reveal {{
+.profile-tile::before {{
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--glow-x) var(--glow-y), rgba(255, 255, 255, 0.35), transparent 55%);
   opacity: 0;
-  transform: translateY(16px);
+  transition: opacity 0.4s ease;
+  z-index: 1;
+}}
+.profile-tile::after {{
+  content: "";
+  position: absolute;
+  inset: 12% 6% auto 6%;
+  height: 55%;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.08);
+  filter: blur(28px);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: 1;
+}}
+.profile-tile:hover {{
+  transform: translate3d(var(--float-x), calc(var(--float-y) - 10px), 0) rotateX(var(--tile-tilt-x)) rotateY(var(--tile-tilt-y));
+  box-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.35);
+}}
+.profile-tile:hover::before,
+.profile-tile:hover::after {{
+  opacity: 1;
+}}
+.profile-row--upper .profile-tile {{
+  flex: 1 1 240px;
+  min-height: 320px;
+  --tile-tilt-x: 4deg;
+  --tile-tilt-y: 0deg;
+}}
+.profile-row--upper .profile-tile:hover {{
+  flex: 1.55 1 240px;
+}}
+.profile-row--lower .profile-tile {{
+  min-height: 210px;
+}}
+.tile-stack {{
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background: rgba(15, 15, 15, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 40px -35px rgba(0, 0, 0, 0.6);
+  transform-style: preserve-3d;
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 0.4s ease, opacity 0.4s ease;
+}}
+.tile-stack--one {{
+  transform: translate3d(0, 14px, -40px) scale(0.98);
+  opacity: 0.8;
+}}
+.tile-stack--two {{
+  transform: translate3d(0, 26px, -80px) scale(0.95);
+  opacity: 0.6;
+}}
+.profile-tile:hover .tile-stack--one {{
+  transform: translate3d(0, 18px, -40px) scale(0.98);
+}}
+.profile-tile:hover .tile-stack--two {{
+  transform: translate3d(0, 30px, -80px) scale(0.95);
+}}
+.tile-surface {{
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+}}
+.tile-media {{
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: brightness(0.6) saturate(0.95);
+  transition: transform 0.6s ease, filter 0.4s ease;
+  z-index: 0;
+}}
+.tile-media--alt {{
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  z-index: 0;
+}}
+.profile-tile.has-deck .tile-media {{
+  animation: deck-base 12s ease-in-out infinite;
+  animation-delay: var(--deck-delay, 0s);
+}}
+.profile-tile.has-deck .tile-media--alt {{
+  animation: deck-alt 12s ease-in-out infinite;
+  animation-delay: calc(var(--deck-delay, 0s) + 6s);
+}}
+.profile-row--upper .tile-media {{
+  animation-name: deck-base, media-drift;
+  animation-duration: 12s, 16s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-delay: var(--deck-delay, 0s), 0s;
+}}
+.profile-row--upper .tile-media--alt {{
+  animation-name: deck-alt, media-drift;
+  animation-duration: 12s, 16s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-delay: calc(var(--deck-delay, 0s) + 6s), 0s;
+}}
+.profile-tile:hover .tile-media {{
+  transform: scale(1.06);
+  filter: brightness(0.5) saturate(1.1);
+}}
+.profile-tile:hover .tile-media--alt {{
+  opacity: 1;
+}}
+.tile-scrim {{
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.7) 70%);
+  transform: translateZ(10px);
+  z-index: 1;
+}}
+.tile-content {{
+  position: relative;
+  z-index: 2;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transform: translateZ(26px);
+}}
+.tile-content h3 {{
+  margin: 0;
+  font-size: 1.5rem;
+  color: #f8f7f4;
+}}
+.tile-keywords {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}}
+.tile-keywords span {{
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.45);
+}}
+.tile-action {{
+  font-size: 0.7rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}}
+
+@keyframes deck-base {{
+  0%, 45% {{ opacity: 1; }}
+  55%, 100% {{ opacity: 0; }}
+}}
+
+@keyframes deck-alt {{
+  0%, 45% {{ opacity: 0; }}
+  55%, 100% {{ opacity: 1; }}
+}}
+
+@keyframes media-drift {{
+  0%, 100% {{ background-position: 50% 50%; }}
+  50% {{ background-position: 55% 45%; }}
+}}
+
+/* Project Overlays */
+.project-overlay {{
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  perspective: 1200px;
+}}
+.project-overlay.active {{
+  opacity: 1;
+  pointer-events: all;
+}}
+.overlay-backdrop {{
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}}
+.overlay-content {{
+  position: relative;
+  width: min(900px, 92vw);
+  max-height: 85vh;
+  background: var(--paper);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(24px) scale(0.92) rotateX(-8deg);
+  transform-origin: var(--origin-x, 50%) var(--origin-y, 20%);
+  transition: transform 0.45s ease, opacity 0.35s ease;
+}}
+.project-overlay.active .overlay-backdrop {{
+  opacity: 1;
+}}
+.project-overlay.active .overlay-content {{
+  opacity: 1;
+  transform: translateY(0) scaleY(1) rotateX(0deg);
+}}
+.overlay-close {{
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
+  font-size: 2rem;
+  background: none;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
+  z-index: 10;
+}}
+.overlay-scroll {{
+  overflow-y: auto;
+  padding: 2rem;
+}}
+.overlay-hero {{
+  width: 100%;
+  height: 260px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}}
+.overlay-body {{
+  font-family: var(--font-body);
+  line-height: 1.6;
+}}
+.overlay-body h3 {{
+  font-family: var(--font-heading);
+  margin-top: 1.5rem;
+}}
+
+/* Scroll Reveal */
+.scroll-reveal {{
+  opacity: 0;
+  transform: translateY(24px);
   transition: opacity 0.6s ease, transform 0.6s ease;
 }}
-.reveal.is-visible {{
+.scroll-reveal.revealed {{
   opacity: 1;
   transform: translateY(0);
 }}
+
+@media (max-width: 900px) {{
+  .profile-row--upper .profile-tile {{
+    flex: 1 1 100%;
+  }}
+  .profile-row--upper .profile-tile:hover {{
+    flex: 1 1 100%;
+  }}
+}}
+
+@media (max-width: 768px) {{
+  .burger-nav a {{
+    font-size: 1.5rem;
+  }}
+  .burger-close {{
+    top: 1.5rem;
+    right: 1.25rem;
+    font-size: 2.5rem;
+  }}
+}}
+
 @media (prefers-reduced-motion: reduce) {{
-  .reveal {{
-    opacity: 1;
-    transform: none;
+  .profile-tile,
+  .overlay-content,
+  .scroll-reveal {{
     transition: none;
+    transform: none;
+  }}
+  .profile-tile:hover {{
+    transform: none;
+  }}
+  .tile-media,
+  .tile-media--alt {{
+    transition: none;
+    animation: none;
   }}
 }}
 
 /* Components */
+.construction-banner {{
+  background: var(--gold);
+  color: #000;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: relative;
+  z-index: 9999;
+}}
+
 .card, .profile-card {{
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
-  padding: 30px;
-  box-shadow: 0 4px 20px var(--shadow);
-  transition: transform 0.3s, box-shadow 0.3s;
+  padding: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.02);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }}
-
-.card:hover {{ transform: translateY(-3px); box-shadow: 0 8px 30px var(--shadow); }}
+.card:hover {{ transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.02); border-color: var(--gold); }}
 
 .button {{
-  padding: 12px 28px;
-  background: var(--primary);
-  color: #fff;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-size: 13px;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  display: inline-block;
-  text-align: center;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.75rem 1.5rem;
+  background: var(--primary); color: #fff;
+  border-radius: 4px; border: 1px solid var(--primary);
+  text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.1em; font-weight: 600;
+  cursor: pointer; transition: all 0.2s ease;
 }}
-.button:hover {{ background: var(--primary-bright); color: #fff; }}
-.button.ghost {{ background: transparent; border: 1px solid var(--primary); color: var(--primary); }}
+.button:hover {{ background: var(--primary-bright); border-color: var(--primary-bright); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+.button.ghost {{ background: transparent; color: var(--primary); }}
 .button.ghost:hover {{ background: var(--primary); color: #fff; }}
 
 /* Grid Layouts */
-.content-grid {{ display: grid; grid-template-columns: 1fr; gap: 40px; }}
+.content-grid {{ display: grid; grid-template-columns: 1fr; gap: 3rem; margin: 4rem 0; }}
 @media (min-width: 768px) {{
   .content-grid {{ grid-template-columns: 1fr 1fr; align-items: center; }}
   .content-grid > div:first-child {{ order: 1; }}
   .content-grid > div:last-child {{ order: 2; }}
 }}
 
-.card-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 30px; margin: 40px 0; }}
-
-/* Section Styling */
-.content-section {{
-  margin: 60px 0;
-  padding: 40px;
-  background: var(--glass);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius);
-  box-shadow: 0 12px 30px -20px var(--shadow);
-}}
-.content-section .content-grid {{ align-items: flex-start; }}
-.content-section h2 {{ margin-top: 0; }}
-.content-section ul {{
-  list-style: none;
-  padding: 0;
-  margin: 20px 0 0;
-  display: grid;
-  gap: 16px;
-}}
-.content-section ul li {{
-  padding: 16px 18px;
-  border-radius: calc(var(--radius) - 2px);
-  border: 1px solid var(--card-border);
-  background: var(--card);
-  box-shadow: 0 6px 16px -12px var(--shadow);
-}}
-.content-section blockquote {{
-  margin: 24px 0;
-  padding: 18px 22px;
-  border-left: 4px solid var(--gold);
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: var(--radius);
-}}
-
-/* Forms */
-input, textarea {{
-  width: 100%;
-  padding: 15px;
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.8);
-  font-family: var(--font-body);
-  margin-bottom: 20px;
-  box-sizing: border-box;
-}}
-input:focus, textarea:focus {{ border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px var(--card-border); }}
+.card-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2rem; margin: 3rem 0; }}
 
 /* Footer */
 .site-footer {{
-  background: var(--primary-dark);
-  color: var(--cream);
-  padding: 60px 5vw;
-  margin-top: 60px;
+  background: var(--primary-dark); color: var(--cream);
+  padding: 4rem 5vw; margin-top: 6rem;
 }}
 .site-footer a {{ color: var(--gold); opacity: 0.8; }}
 .site-footer a:hover {{ opacity: 1; }}
-.footer-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 40px; }}
-.footer-title {{ font-family: var(--font-heading); font-size: 1.2rem; margin-bottom: 1rem; color: #fff; }}
+.footer-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 3rem; }}
+.footer-title {{ font-family: var(--font-heading); font-size: 1.25rem; margin-bottom: 1.5rem; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem; }}
 
-/* Images */
-img {{ max-width: 100%; height: auto; display: block; }}
-.image-frame {{ margin: 0; overflow: hidden; border-radius: var(--radius); box-shadow: 0 10px 40px -10px var(--shadow); }}
+/* Utilities */
+.sr-only {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }}
+.image-frame {{ border-radius: var(--radius); overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }}
+.image-frame img {{ width: 100%; height: auto; display: block; transition: transform 0.5s ease; }}
+.image-frame:hover img {{ transform: scale(1.03); }}
+
+/* Form Elements */
+input, textarea {{
+  width: 100%; padding: 1rem;
+  border: 1px solid var(--card-border); border-radius: 4px;
+  background: rgba(255,255,255,0.8);
+  font-family: var(--font-body); font-size: 1rem;
+  margin-bottom: 1.5rem; transition: all 0.2s;
+}}
+input:focus, textarea:focus {{ border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(101, 20, 28, 0.1); }}
 
 {theme_overrides}
 """
@@ -1442,6 +1963,259 @@ function smoothScroll() {
       event.preventDefault();
       target.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth' });
     });
+  });
+}
+
+function setupScrollReveal() {
+  const revealItems = document.querySelectorAll('.scroll-reveal');
+  if (!revealItems.length) return;
+  if (prefersReduced) {
+    revealItems.forEach((item) => item.classList.add('revealed'));
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('revealed');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  revealItems.forEach((item) => observer.observe(item));
+}
+
+function setupTileBackgrounds() {
+  document.querySelectorAll('[data-bg]').forEach((node) => {
+    const url = node.getAttribute('data-bg');
+    if (!url || node.style.backgroundImage) return;
+    node.style.backgroundImage = `url('${url}')`;
+  });
+}
+
+function setupTileTilt() {
+  if (prefersReduced) return;
+  const tiles = document.querySelectorAll('.profile-row--upper .profile-tile');
+  tiles.forEach((tile) => {
+    let frame = null;
+    const handleMove = (event) => {
+      const rect = tile.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      const tiltX = (0.5 - y) * 10;
+      const tiltY = (x - 0.5) * 12;
+      const glowX = `${(x * 100).toFixed(1)}%`;
+      const glowY = `${(y * 100).toFixed(1)}%`;
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        tile.style.setProperty('--tile-tilt-x', `${tiltX.toFixed(2)}deg`);
+        tile.style.setProperty('--tile-tilt-y', `${tiltY.toFixed(2)}deg`);
+        tile.style.setProperty('--glow-x', glowX);
+        tile.style.setProperty('--glow-y', glowY);
+      });
+    };
+    const handleLeave = () => {
+      if (frame) cancelAnimationFrame(frame);
+      tile.style.setProperty('--tile-tilt-x', '0deg');
+      tile.style.setProperty('--tile-tilt-y', '0deg');
+      tile.style.setProperty('--glow-x', '50%');
+      tile.style.setProperty('--glow-y', '25%');
+    };
+    tile.addEventListener('mousemove', handleMove);
+    tile.addEventListener('mouseleave', handleLeave);
+  });
+}
+
+function setupTileFloat() {
+  if (prefersReduced) return;
+  const tiles = Array.from(document.querySelectorAll('.profile-tile'));
+  if (!tiles.length) return;
+  let raf = null;
+  const animate = (time) => {
+    tiles.forEach((tile, index) => {
+      const offset = parseFloat(tile.style.getPropertyValue('--float-offset')) || (index * 0.6);
+      if (tile.matches(':hover')) {
+        tile.style.setProperty('--float-y', '0px');
+        tile.style.setProperty('--float-x', '0px');
+        return;
+      }
+      const tier = tile.dataset.tier || 'lower';
+      const amp = tier === 'upper' ? 6 : 3;
+      const ampX = tier === 'upper' ? 4 : 2;
+      const speed = tier === 'upper' ? 0.001 : 0.0008;
+      const y = Math.sin(time * speed + offset) * amp;
+      const x = Math.cos(time * speed + offset) * ampX;
+      tile.style.setProperty('--float-y', `${y.toFixed(2)}px`);
+      tile.style.setProperty('--float-x', `${x.toFixed(2)}px`);
+    });
+    raf = requestAnimationFrame(animate);
+  };
+  const restart = () => {
+    if (!raf) {
+      raf = requestAnimationFrame(animate);
+    }
+  };
+  const stop = () => {
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = null;
+    }
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stop();
+    } else {
+      restart();
+    }
+  });
+  restart();
+}
+
+function setupOverlays() {
+  const focusableSelector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex=\"-1\"])';
+  const focusCleanupMap = new WeakMap();
+  const focusReturnMap = new WeakMap();
+  const burgerToggle = document.querySelector('.burger-toggle');
+  if (burgerToggle) {
+    burgerToggle.setAttribute('aria-expanded', 'false');
+  }
+
+  const getFocusable = (container) => Array.from(container.querySelectorAll(focusableSelector));
+
+  const trapFocus = (container) => {
+    const focusables = getFocusable(container);
+    if (!focusables.length) {
+      return () => {};
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const handler = (event) => {
+      if (event.key !== 'Tab') return;
+      if (focusables.length === 1) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    container.addEventListener('keydown', handler);
+    return () => container.removeEventListener('keydown', handler);
+  };
+
+  const openOverlay = (overlay, trigger) => {
+    if (!overlay || overlay.classList.contains('active')) return;
+    if (trigger && overlay) {
+      const rect = trigger.getBoundingClientRect();
+      const originX = ((rect.left + rect.width / 2) / window.innerWidth) * 100;
+      const originY = ((rect.top + rect.height / 2) / window.innerHeight) * 100;
+      overlay.style.setProperty('--origin-x', `${originX.toFixed(2)}%`);
+      overlay.style.setProperty('--origin-y', `${Math.min(originY, 60).toFixed(2)}%`);
+    }
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    focusReturnMap.set(overlay, trigger || document.activeElement);
+    const cleanup = trapFocus(overlay);
+    focusCleanupMap.set(overlay, cleanup);
+    const focusables = getFocusable(overlay);
+    if (focusables.length) {
+      focusables[0].focus({ preventScroll: true });
+    } else {
+      overlay.setAttribute('tabindex', '-1');
+      overlay.focus({ preventScroll: true });
+    }
+  };
+
+  const closeOverlay = (overlay) => {
+    if (!overlay || !overlay.classList.contains('active')) return;
+    overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
+    const cleanup = focusCleanupMap.get(overlay);
+    if (cleanup) cleanup();
+    focusCleanupMap.delete(overlay);
+    const returnTarget = focusReturnMap.get(overlay);
+    focusReturnMap.delete(overlay);
+    if (!document.querySelector('.project-overlay.active, .burger-menu-overlay.active')) {
+      document.body.style.overflow = '';
+    }
+    if (returnTarget && typeof returnTarget.focus === 'function') {
+      returnTarget.focus({ preventScroll: true });
+    }
+  };
+
+  window.toggleBurgerMenu = function () {
+    const overlay = document.getElementById('burger-menu');
+    if (overlay) {
+      if (overlay.classList.contains('active')) {
+        closeOverlay(overlay);
+        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
+      } else {
+        openOverlay(overlay, burgerToggle);
+        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'true');
+      }
+    }
+  };
+
+  document.querySelectorAll('[data-type=\"overlay\"]').forEach((trigger) => {
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault();
+      const overlayId = trigger.getAttribute('data-overlay-id');
+      const overlay = document.getElementById(`overlay-${overlayId}`);
+      if (overlay) {
+        openOverlay(overlay, trigger);
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-close-overlay]').forEach((closer) => {
+    closer.addEventListener('click', () => {
+      const overlay = closer.closest('.project-overlay');
+      if (overlay) {
+        closeOverlay(overlay);
+      }
+    });
+  });
+
+  document.querySelectorAll('.project-overlay, .burger-menu-overlay').forEach((overlay) => {
+    overlay.addEventListener('pointerdown', (event) => {
+      if (overlay.classList.contains('project-overlay')) {
+        if (event.target.classList.contains('overlay-backdrop') || event.target === overlay) {
+          closeOverlay(overlay);
+        }
+        return;
+      }
+      if (event.target === overlay) {
+        closeOverlay(overlay);
+        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
+
+  const burgerMenu = document.getElementById('burger-menu');
+  if (burgerMenu) {
+    burgerMenu.querySelectorAll('a').forEach((link) => {
+      link.addEventListener('click', () => {
+        closeOverlay(burgerMenu);
+        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
+      });
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      document.querySelectorAll('.project-overlay.active, .burger-menu-overlay.active').forEach((overlay) => {
+        closeOverlay(overlay);
+        if (overlay.id === 'burger-menu' && burgerToggle) {
+          burgerToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
   });
 }
 
@@ -1544,13 +2318,122 @@ function setupContactForm() {
   });
 }
 
+
+function setupSiteNotice() {
+  const body = document.body;
+  const noticeText = body.dataset.notice;
+  if (!noticeText) return;
+
+  const banner = document.createElement('div');
+  banner.className = 'site-notice-banner';
+  banner.style.cssText = 'background: #ffb84d; color: #000; padding: 10px; text-align: center; font-weight: bold; position: relative; z-index: 9999;';
+  banner.innerHTML = `<span>🚧 ${noticeText}</span><button onclick="this.parentElement.remove()" style="background:none; border:none; color:inherit; font:inherit; cursor:pointer; margin-left:1rem; font-size:1.2em;">&times;</button>`;
+  document.body.prepend(banner);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  setupSiteNotice();
   revealOnScroll();
+  setupScrollReveal();
+  setupTileBackgrounds();
+  setupTileTilt();
+  setupTileFloat();
+  setupOverlays();
   smoothScroll();
   setupNewsletter();
   setupContactForm();
 });
 """.lstrip()
+
+
+def _render_holobiontic_layout(
+    site: dict[str, Any],
+    current_path: Path,
+    hero_heading: str,
+    hero_body: str,
+    hero_cta: str,
+    hero_image_src: str,
+    sections_html: str,
+    overview_html: str,
+    page_body_html: str,
+) -> str:
+    hero_kicker = _escape(site.get("hero_kicker") or site.get("site_name", ""))
+    hero_subtitle = _escape(site.get("hero_subtitle") or site.get("site_tagline", ""))
+    panel_title = _escape(site.get("hero_panel_title", ""))
+    panel_body_raw = site.get("hero_panel_body") or site.get("contact_blurb", "")
+    panel_body = _render_paragraphs(panel_body_raw)
+    badges = site.get("hero_badges") or []
+    if not isinstance(badges, list):
+        badges = []
+    badges_html = "".join(f"<span>{_escape(str(item))}</span>" for item in badges if item)
+    badges_block = f"<div class=\"hero-tags\">{badges_html}</div>" if badges_html else ""
+    stats = site.get("hero_stats") or []
+    stats_html = ""
+    if isinstance(stats, list):
+        for stat in stats:
+            if not isinstance(stat, dict):
+                continue
+            value = _escape(str(stat.get("value", "")))
+            label = _escape(str(stat.get("label", "")))
+            if value or label:
+                stats_html += f"<div><span>{value}</span>{label}</div>"
+    stats_block = f"<div class=\"hero-metrics\">{stats_html}</div>" if stats_html else ""
+    subtitle_html = f"<p class=\"subtitle\">{hero_subtitle}</p>" if hero_subtitle else ""
+    kicker_html = f"<p class=\"eyebrow\">{hero_kicker}</p>" if hero_kicker else ""
+    panel_title_html = f"<h3>{panel_title}</h3>" if panel_title else ""
+    panel_html = ""
+    if panel_title_html or panel_body or stats_block:
+        panel_html = f"""
+            <div class="hero-panel">
+              {panel_title_html}
+              {panel_body}
+              {stats_block}
+            </div>
+        """
+    spore_positions = [
+        {"x": "12%", "y": "30%", "s": "6px", "d": "0s"},
+        {"x": "22%", "y": "62%", "s": "8px", "d": "-2s"},
+        {"x": "38%", "y": "18%", "s": "5px", "d": "-4s"},
+        {"x": "52%", "y": "48%", "s": "7px", "d": "-1s"},
+        {"x": "66%", "y": "22%", "s": "4px", "d": "-3s"},
+        {"x": "74%", "y": "62%", "s": "6px", "d": "-5s"},
+        {"x": "86%", "y": "36%", "s": "5px", "d": "-6s"},
+        {"x": "92%", "y": "12%", "s": "4px", "d": "-7s"},
+    ]
+    spore_html = "".join(
+        f"<span style=\"--x:{item['x']}; --y:{item['y']}; --s:{item['s']}; --d:{item['d']};\"></span>"
+        for item in spore_positions
+    )
+    bio_field_html = f"""
+        <div class="bio-field">
+          <div class="bio-halo"></div>
+          <div class="bio-threads"></div>
+          <div class="bio-spores">{spore_html}</div>
+        </div>
+    """
+    return f"""
+      <section class="hero holobiontic-hero">
+        <div class="hero-orbit"></div>
+        {bio_field_html}
+        <div class="hero-inner">
+          <div class="hero-copy">
+            {kicker_html}
+            <h1>{_escape(hero_heading)}</h1>
+            {subtitle_html}
+            {hero_body}
+            <div class="hero-actions">{hero_cta}</div>
+            {badges_block}
+          </div>
+          <div class="hero-art">
+            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
+            {panel_html}
+          </div>
+        </div>
+      </section>
+      {overview_html}
+      {sections_html}
+      {page_body_html}
+"""
 
 
 def _render_archive_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path, hero_heading: str, hero_body: str, sections_html: str, overview_html: str, page_body_html: str) -> str:
@@ -1742,96 +2625,6 @@ def _render_rhizome_layout(site: dict[str, str], pages: dict[str, dict[str, obje
         </div>
     </section>
     """
-
-
-def _render_holobiontic_layout(
-    site: dict[str, Any],
-    current_path: Path,
-    hero_heading: str,
-    hero_body: str,
-    hero_cta: str,
-    hero_image_src: str,
-    sections_html: str,
-    overview_html: str,
-    page_body_html: str,
-) -> str:
-    hero_kicker = _escape(site.get("hero_kicker") or site.get("site_name", ""))
-    hero_subtitle = _escape(site.get("hero_subtitle") or site.get("site_tagline", ""))
-    panel_title = _escape(site.get("hero_panel_title", ""))
-    panel_body_raw = site.get("hero_panel_body") or site.get("contact_blurb", "")
-    panel_body = _render_paragraphs(panel_body_raw)
-    badges = site.get("hero_badges") or []
-    if not isinstance(badges, list):
-        badges = []
-    badges_html = "".join(f"<span>{_escape(str(item))}</span>" for item in badges if item)
-    badges_block = f"<div class=\"hero-tags\">{badges_html}</div>" if badges_html else ""
-    stats = site.get("hero_stats") or []
-    stats_html = ""
-    if isinstance(stats, list):
-        for stat in stats:
-            if not isinstance(stat, dict):
-                continue
-            value = _escape(str(stat.get("value", "")))
-            label = _escape(str(stat.get("label", "")))
-            if value or label:
-                stats_html += f"<div><span>{value}</span>{label}</div>"
-    stats_block = f"<div class=\"hero-metrics\">{stats_html}</div>" if stats_html else ""
-    subtitle_html = f"<p class=\"subtitle\">{hero_subtitle}</p>" if hero_subtitle else ""
-    kicker_html = f"<p class=\"eyebrow\">{hero_kicker}</p>" if hero_kicker else ""
-    panel_title_html = f"<h3>{panel_title}</h3>" if panel_title else ""
-    panel_html = ""
-    if panel_title_html or panel_body or stats_block:
-        panel_html = f"""
-            <div class="hero-panel">
-              {panel_title_html}
-              {panel_body}
-              {stats_block}
-            </div>
-        """
-    spore_positions = [
-        {"x": "12%", "y": "30%", "s": "6px", "d": "0s"},
-        {"x": "22%", "y": "62%", "s": "8px", "d": "-2s"},
-        {"x": "38%", "y": "18%", "s": "5px", "d": "-4s"},
-        {"x": "52%", "y": "48%", "s": "7px", "d": "-1s"},
-        {"x": "66%", "y": "22%", "s": "4px", "d": "-3s"},
-        {"x": "74%", "y": "62%", "s": "6px", "d": "-5s"},
-        {"x": "86%", "y": "36%", "s": "5px", "d": "-6s"},
-        {"x": "92%", "y": "12%", "s": "4px", "d": "-7s"},
-    ]
-    spore_html = "".join(
-        f"<span style=\"--x:{item['x']}; --y:{item['y']}; --s:{item['s']}; --d:{item['d']};\"></span>"
-        for item in spore_positions
-    )
-    bio_field_html = f"""
-        <div class="bio-field">
-          <div class="bio-halo"></div>
-          <div class="bio-threads"></div>
-          <div class="bio-spores">{spore_html}</div>
-        </div>
-    """
-    return f"""
-      <section class="hero holobiontic-hero">
-        <div class="hero-orbit"></div>
-        {bio_field_html}
-        <div class="hero-inner">
-          <div class="hero-copy">
-            {kicker_html}
-            <h1>{_escape(hero_heading)}</h1>
-            {subtitle_html}
-            {hero_body}
-            <div class="hero-actions">{hero_cta}</div>
-            {badges_block}
-          </div>
-          <div class="hero-art">
-            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
-            {panel_html}
-          </div>
-        </div>
-      </section>
-      {overview_html}
-      {sections_html}
-      {page_body_html}
-"""
 
 
 def _render_sentient_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
@@ -2229,7 +3022,7 @@ def build_site() -> None:
     digests = _read_digests()
     meta_description = site.get("meta_description", "")
     layout_variant = (site.get("layout_variant") or "standard").strip().lower()
-    if layout_variant not in {"standard", "linkhub", "profile", "mescia_landing", "archive", "swarm", "rhizome", "sentient", "holobiontic"}:
+    if layout_variant not in {"standard", "linkhub", "profile", "mescia_landing", "archive", "swarm", "rhizome", "sentient"}:
         layout_variant = "standard"
     show_digest_home = str(site.get("show_digest_home", "")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -2241,6 +3034,19 @@ def build_site() -> None:
     _write_contact_php()
     _write_data_protection()
     
+    # BibTeX Automation
+    bib_path = CONTENT_DIR / "publications.bib"
+    if bib_path.exists():
+        import subprocess
+        print(f"📚 Found bibliography: {bib_path.name}")
+        parser_script = BASE_DIR / "tools" / "parse_bibtex.py"
+        output_md = BLOCKS_DIR / "publications.md"
+        try:
+            subprocess.run([sys.executable, str(parser_script), str(bib_path), str(output_md)], check=True)
+            print("   ✅ Generated publications.md")
+        except Exception as e:
+            print(f"   ❌ BibTeX parsing failed: {e}")
+
     # SEO & Syndication
     if site.get("domain"):
         (SITE_DIR / "rss.xml").write_text(_generate_rss(site, posts), encoding="utf-8")
@@ -2256,8 +3062,6 @@ def build_site() -> None:
         # Include extra CSS for new layout variants
         if slug == "" and layout_variant in {"archive", "swarm", "rhizome", "sentient"}:
             extra_css += f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/extra_layouts.css")))}" />'
-        if layout_variant == "holobiontic":
-            extra_css += f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/holobiontic.css")))}" />'
 
         header = _render_header(slug, pages, current_path, site)
         footer = _render_footer(site, pages, current_path, links)
@@ -2331,18 +3135,8 @@ def build_site() -> None:
                 homepage_body = _render_rhizome_layout(site, pages, current_path)
             elif layout_variant == "sentient":
                 homepage_body = _render_sentient_layout(site, pages, current_path)
-            elif layout_variant == "holobiontic":
-                homepage_body = _render_holobiontic_layout(
-                    site,
-                    current_path,
-                    hero_heading,
-                    hero_body,
-                    hero_cta,
-                    hero_image_src,
-                    sections_html,
-                    overview_html,
-                    page_body_html,
-                )
+            elif layout_variant == "holobiontic" or (layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower()):
+                homepage_body = _render_holobiontic_layout(site, current_path, hero_heading, hero_body, hero_cta, hero_image_src, sections_html, overview_html, page_body_html)
             elif layout_variant == "profile":
                 homepage_body = f"""
       <section class="hero">
@@ -2398,9 +3192,9 @@ def build_site() -> None:
             <h3>Dynamic systems, grounded experiments</h3>
             <p>Placeholder for a concise, compelling institute statement.</p>
             <div class="hero-metrics">
-              <div><span>12+</span>Active research threads</div>
-              <div><span>4</span>Cross-faculty labs</div>
-              <div><span>20</span>Years of ALife history</div>
+              <div><span>Global</span>Active Research Network</div>
+              
+              
             </div>
           </div>
         </div>
@@ -2426,9 +3220,9 @@ def build_site() -> None:
             <h3>Dynamic systems, grounded experiments</h3>
             <p>Placeholder for a concise, compelling institute statement.</p>
             <div class="hero-metrics">
-              <div><span>12+</span>Active research threads</div>
-              <div><span>4</span>Cross-faculty labs</div>
-              <div><span>20</span>Years of ALife history</div>
+              <div><span>Global</span>Active Research Network</div>
+              
+              
             </div>
           </div>
         </div>
@@ -2438,10 +3232,28 @@ def build_site() -> None:
       {page_body_html}
 """
 
+        # Add search CSS
+        search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
+        
+        # Search UI HTML
+        search_ui = f"""
+  <div class="search-container">
+    <div class="search-box">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
+        <span class="search-shortcut">Ctrl+K</span>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+"""
+        
         doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(page['title'], css_href, meta_description, extra_css=extra_css)}
+{_render_head(page['title'], css_href, meta_description, extra_css=extra_css + search_css)}
 <body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
+  {search_ui}
   <div class="page-shell">
     {header}
     <main>
@@ -2451,6 +3263,8 @@ def build_site() -> None:
   </div>
   <script src="{_escape(js_href)}"></script>
   {f'<script src="{_escape(_rel_link(current_path, Path("assets/js/landing.js")))}"></script>' if slug == "" and layout_variant == "mescia_landing" else ''}
+  {f'<script src="{_escape(_rel_link(current_path, Path("assets/js/optimize.js")))}"></script>' if slug == "" else ''}
+  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
 </body>
 </html>
 """
