@@ -1,0 +1,198 @@
+body.layout-holobiontic {
+  position: relative;
+  background: linear-gradient(180deg, rgba(233, 244, 236, 0.9) 0%, rgba(247, 251, 245, 0.9) 60%, rgba(233, 244, 236, 0.7) 100%);
+  overflow-x: hidden;
+}
+
+body.layout-holobiontic::before {
+  content: "";
+  position: fixed;
+  inset: -20% -10% auto -10%;
+  height: 140%;
+  background:
+    radial-gradient(60% 40% at 75% 10%, rgba(74, 166, 116, 0.24), transparent 70%),
+    radial-gradient(40% 30% at 10% 20%, rgba(192, 138, 54, 0.22), transparent 65%),
+    radial-gradient(50% 40% at 80% 70%, rgba(28, 75, 58, 0.15), transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+body.layout-holobiontic::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(28, 75, 58, 0.08) 1px, transparent 1px);
+  background-size: 120px 120px;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.6;
+}
+
+.holobiontic-hero {
+  position: relative;
+  padding: 140px 0 100px;
+  overflow: hidden;
+}
+
+.holobiontic-hero .hero-inner {
+  gap: 48px;
+}
+
+.holobiontic-hero .hero-orbit {
+  position: absolute;
+  inset: -30% auto auto -15%;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  border: 1px dashed rgba(28, 75, 58, 0.35);
+  box-shadow: 0 0 120px rgba(74, 166, 116, 0.2);
+  animation: bio-spin 80s linear infinite;
+}
+
+.bio-field {
+  position: absolute;
+  inset: -20% 0 auto 0;
+  height: 120%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bio-halo {
+  position: absolute;
+  right: -120px;
+  top: -140px;
+  width: 640px;
+  height: 640px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(192, 138, 54, 0.28), transparent 65%);
+  filter: blur(0px);
+  animation: bio-drift 18s ease-in-out infinite;
+}
+
+.bio-threads {
+  position: absolute;
+  left: -10%;
+  top: 15%;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  border: 1px solid rgba(28, 75, 58, 0.18);
+  box-shadow:
+    inset 0 0 80px rgba(74, 166, 116, 0.12),
+    0 0 100px rgba(28, 75, 58, 0.08);
+  animation: bio-spin 140s linear infinite reverse;
+}
+
+.bio-spores span {
+  position: absolute;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: rgba(28, 75, 58, 0.2);
+  box-shadow: 0 0 20px rgba(74, 166, 116, 0.25);
+  top: var(--y);
+  left: var(--x);
+  animation: bio-float 12s ease-in-out infinite;
+  animation-delay: var(--d);
+}
+
+.holobiontic-hero .hero-copy {
+  position: relative;
+  z-index: 2;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.hero-tags span {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 75, 58, 0.2);
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hero-panel {
+  padding: 22px 24px;
+  border-radius: 16px;
+  border: 1px solid rgba(28, 75, 58, 0.2);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 20px 40px -30px rgba(11, 36, 26, 0.4);
+}
+
+.hero-panel h3 {
+  margin: 0 0 10px;
+  color: var(--primary-dark);
+}
+
+.hero-panel p {
+  margin: 0 0 16px;
+}
+
+.hero-panel .hero-metrics span {
+  color: var(--primary-dark);
+}
+
+body.layout-holobiontic .content-section {
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(28, 75, 58, 0.2);
+}
+
+body.layout-holobiontic .content-section::before {
+  content: "";
+  display: block;
+  height: 2px;
+  width: 120px;
+  background: linear-gradient(90deg, rgba(28, 75, 58, 0.2), rgba(192, 138, 54, 0.6));
+  margin-bottom: 20px;
+  border-radius: 999px;
+}
+
+@keyframes bio-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bio-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -18px, 0); }
+}
+
+@keyframes bio-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-30px, 20px, 0); }
+}
+
+@media (max-width: 900px) {
+  .holobiontic-hero {
+    padding: 120px 0 80px;
+  }
+
+  .holobiontic-hero .hero-orbit {
+    width: 340px;
+    height: 340px;
+  }
+
+  .bio-halo {
+    width: 420px;
+    height: 420px;
+    right: -160px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holobiontic-hero .hero-orbit,
+  .bio-halo,
+  .bio-threads,
+  .bio-spores span {
+    animation: none;
+  }
+}

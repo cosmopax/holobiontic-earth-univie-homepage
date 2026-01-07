@@ -1,18 +1,46 @@
 {
     "site_name": "Holobiontic Earth",
-    "site_tagline": "University of Vienna",
-    "meta_description": "Holobiontic Earth Research",
+    "site_tagline": "Symbiosis, co-evolution, and planetary intelligence.",
+    "meta_description": "Holobiontic Earth is a University of Vienna research network studying symbiosis, co-evolution, and planetary intelligence.",
     "domain": "https://holobiontic-earth.univie.ac.at",
-    "layout_variant": "standard",
-    "manifesto": "We are the Symbiosis...",
+    "layout_variant": "holobiontic",
+    "logo_text": "Holobiontic Earth",
+    "nav_cta_text": "Read manifesto",
+    "nav_cta_target": "manifesto",
+    "contact_blurb": "An ecology-first research network exploring symbiosis, co-evolution, and planetary intelligence.",
+    "hero_kicker": "Holobiontic Earth | University of Vienna",
+    "hero_subtitle": "Ecology-first research for multi-species futures.",
+    "hero_panel_title": "Living systems, planetary futures",
+    "hero_panel_body": "We connect field ecology, microbial sensing, and speculative design to cultivate long-horizon stewardship.",
+    "hero_badges": [
+        "Symbiosis",
+        "Ecological sensing",
+        "Planetary intelligence",
+        "Speculative design"
+    ],
+    "hero_stats": [
+        {
+            "value": "6+",
+            "label": "Field ecologies"
+        },
+        {
+            "value": "12+",
+            "label": "Research collaborations"
+        },
+        {
+            "value": "4",
+            "label": "Living labs"
+        }
+    ],
+    "manifesto": "We are the symbiosis.",
     "theme": {
-        "primary": "#1a472a",
-        "primary_dark": "#0d2615",
-        "primary_bright": "#2d7a46",
-        "background": "#e6f5e9",
-        "paper": "#f1fcf4",
-        "accent": "#c15b28",
-        "text_main": "#0a1f12",
-        "text_muted": "#2c4a3b"
+        "primary": "#1c4b3a",
+        "primary_dark": "#0b241a",
+        "primary_bright": "#4aa674",
+        "background": "#e9f4ec",
+        "paper": "#f7fbf5",
+        "accent": "#c08a36",
+        "text_main": "#0c1d15",
+        "text_muted": "#365447"
     }
 }

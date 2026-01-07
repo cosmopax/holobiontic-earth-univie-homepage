@@ -1,12 +1,7 @@
-# Research Concepts
+# Concept
 
-Our research investigates the emergence of planetary-scale intelligence through the lens of holobiontic theory.
+Holobionts are assemblages: host organisms plus the microbiomes and environments that sustain them. We study these assemblages as living infrastructures.
 
-## 1. Microbial Networks
-Mapping the "internet of the soil"—the fungal and bacterial pathways that distribute nutrients and signals across vast distances.
-
-## 2. Atmospheric Agency
-Analyzing the chemical feedback loops between forests and the troposphere, treating the sky as a biological organ.
-
-## 3. Post-Anthropocene Architectures
-Designing built environments that function as carbon sinks and biodiversity hotspots, merging the computational with the organic.
+- **Microbial ecologies:** symbiotic networks as foundational intelligence and memory.
+- **Distributed agency:** organisms, climates, and technologies co-determining outcomes.
+- **Biotech interfaces:** sensing and stewardship tools for ecological care.

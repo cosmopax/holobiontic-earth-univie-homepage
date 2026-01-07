@@ -1,12 +1,10 @@
-# The Holobiontic Manifesto
+# Manifesto
 
-We stand at a threshold where the distinction between "humanity" and "nature" is no longer biologically tenable. We are not individuals; we are assemblages. We are holobionts.
+We are the symbiosis. We are not a single organism but a living mesh of microbes, plants, animals, and technologies co-creating the conditions of life.
 
-Our mission is to decode the symbiotic logic of the planet. We view the Earth not as a resource to be managed, but as a vast, interconnected metabolism that we must learn to inhabit as participants, not masters.
+Our manifesto commits to:
 
-### Core Tenets:
-1. **Radical Symbiosis:** All life is collaborative. Competition is a subset of cooperation.
-2. **Metabolic Sovereignty:** Understanding the flows of carbon, nitrogen, and information as the base layer of planetary agency.
-3. **Synthetic Integration:** Engineering new biomes that respect and enhance existing evolutionary trajectories.
-
-*Join us in the Great Symbiosis.*
+- **Relational intelligence:** knowledge as a shared, multi-species practice.
+- **Careful entanglement:** interventions that strengthen mutual dependence.
+- **Planetary stewardship:** long-horizon responsibility for ecological futures.
+- **Reciprocal design:** methods that return more to ecosystems than they extract.

@@ -791,7 +791,7 @@ def _render_digest_page(digest: dict[str, str], pages: dict[str, dict[str, objec
     doc = f"""<!doctype html>
 <html lang=\"en\">
 {_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''))}
-<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
+<body class="layout-{_escape(layout_variant)}" data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
   <div class="page-shell">
     {header}
     <main>
@@ -933,20 +933,18 @@ def _build_css(site: dict[str, Any]) -> str:
         .module-header {{ border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-bottom: 1rem; font-weight: bold; color: var(--primary); }}
         """
 
-    elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
+    elif layout_variant == "holobiontic":
         theme_overrides = f"""
         /* Holobiontic / Bio Theme */
         body {{
             background-color: {cream};
-            background-image: radial-gradient({primary}1a 1px, transparent 1px);
-            background-size: 30px 30px;
         }}
         .site-header {{
             background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(16px);
             border-bottom: 1px solid rgba(45, 122, 70, 0.2);
         }}
-        h1, h2, h3 {{ color: {primary_dark}; font-family: "Playfair Display", serif; }}
+        h1, h2, h3 {{ color: {primary_dark}; font-family: "Fraunces", serif; }}
         .card {{
             background: rgba(255, 255, 255, 0.9);
             border: 1px solid rgba(45, 122, 70, 0.2);
@@ -985,8 +983,8 @@ def _build_css(site: dict[str, Any]) -> str:
   --glass: rgba(255, 255, 255, 0.6);
   --shadow: {primary_dark}1a;
   
-  --font-heading: "Cormorant Garamond", serif;
-  --font-body: "Outfit", sans-serif;
+  --font-heading: "Fraunces", serif;
+  --font-body: "DM Sans", sans-serif;
   --radius: 8px;
   --max-width: 1200px;
 }}
@@ -1002,7 +1000,7 @@ body {{
 }}
 
 /* Typography */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500&family=Fira+Code:wght@400;500&family=Playfair+Display:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
 h1, h2, h3 {{
   font-family: var(--font-heading);
@@ -1049,6 +1047,106 @@ main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); ma
 .nav {{ display: flex; gap: 30px; }}
 .nav a {{ color: var(--text-muted); text-transform: uppercase; font-size: 13px; letter-spacing: 0.1em; font-weight: 600; }}
 .nav a:hover, .nav a.active {{ color: var(--primary); }}
+.cta {{
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  font-weight: 600;
+}}
+.cta:hover {{ background: var(--primary); color: #fff; }}
+
+/* Hero */
+.hero, .page-hero {{
+  position: relative;
+  padding: 120px 0 80px;
+}}
+.page-hero {{ padding: 80px 0 40px; }}
+.page-hero-inner {{ max-width: 900px; }}
+.hero-inner {{
+  display: grid;
+  gap: 40px;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}}
+@media (min-width: 900px) {{
+  .hero-inner {{ grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); }}
+}}
+.hero-orbit {{
+  position: absolute;
+  inset: -40% auto auto -10%;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  opacity: 0.5;
+}}
+.eyebrow {{
+  font-size: 12px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 0 0 12px;
+}}
+.subtitle {{
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin: 0 0 18px;
+}}
+.hero-actions {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}}
+.hero-art {{ display: grid; gap: 16px; }}
+.hero-metrics {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}}
+.hero-metrics span {{
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--primary);
+  letter-spacing: -0.01em;
+}}
+
+/* Content blocks */
+.content-block {{
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 32px;
+  box-shadow: 0 12px 30px -24px var(--shadow);
+}}
+.page-body {{ margin-bottom: 60px; }}
+
+/* Reveal */
+.reveal {{
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}}
+.reveal.is-visible {{
+  opacity: 1;
+  transform: translateY(0);
+}}
+@media (prefers-reduced-motion: reduce) {{
+  .reveal {{
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }}
+}}
 
 /* Components */
 .card, .profile-card {{
@@ -1089,6 +1187,39 @@ main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); ma
 }}
 
 .card-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 30px; margin: 40px 0; }}
+
+/* Section Styling */
+.content-section {{
+  margin: 60px 0;
+  padding: 40px;
+  background: var(--glass);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px -20px var(--shadow);
+}}
+.content-section .content-grid {{ align-items: flex-start; }}
+.content-section h2 {{ margin-top: 0; }}
+.content-section ul {{
+  list-style: none;
+  padding: 0;
+  margin: 20px 0 0;
+  display: grid;
+  gap: 16px;
+}}
+.content-section ul li {{
+  padding: 16px 18px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  box-shadow: 0 6px 16px -12px var(--shadow);
+}}
+.content-section blockquote {{
+  margin: 24px 0;
+  padding: 18px 22px;
+  border-left: 4px solid var(--gold);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius);
+}}
 
 /* Forms */
 input, textarea {{
@@ -1455,6 +1586,96 @@ def _render_rhizome_layout(site: dict[str, str], pages: dict[str, dict[str, obje
         </div>
     </section>
     """
+
+
+def _render_holobiontic_layout(
+    site: dict[str, Any],
+    current_path: Path,
+    hero_heading: str,
+    hero_body: str,
+    hero_cta: str,
+    hero_image_src: str,
+    sections_html: str,
+    overview_html: str,
+    page_body_html: str,
+) -> str:
+    hero_kicker = _escape(site.get("hero_kicker") or site.get("site_name", ""))
+    hero_subtitle = _escape(site.get("hero_subtitle") or site.get("site_tagline", ""))
+    panel_title = _escape(site.get("hero_panel_title", ""))
+    panel_body_raw = site.get("hero_panel_body") or site.get("contact_blurb", "")
+    panel_body = _render_paragraphs(panel_body_raw)
+    badges = site.get("hero_badges") or []
+    if not isinstance(badges, list):
+        badges = []
+    badges_html = "".join(f"<span>{_escape(str(item))}</span>" for item in badges if item)
+    badges_block = f"<div class=\"hero-tags\">{badges_html}</div>" if badges_html else ""
+    stats = site.get("hero_stats") or []
+    stats_html = ""
+    if isinstance(stats, list):
+        for stat in stats:
+            if not isinstance(stat, dict):
+                continue
+            value = _escape(str(stat.get("value", "")))
+            label = _escape(str(stat.get("label", "")))
+            if value or label:
+                stats_html += f"<div><span>{value}</span>{label}</div>"
+    stats_block = f"<div class=\"hero-metrics\">{stats_html}</div>" if stats_html else ""
+    subtitle_html = f"<p class=\"subtitle\">{hero_subtitle}</p>" if hero_subtitle else ""
+    kicker_html = f"<p class=\"eyebrow\">{hero_kicker}</p>" if hero_kicker else ""
+    panel_title_html = f"<h3>{panel_title}</h3>" if panel_title else ""
+    panel_html = ""
+    if panel_title_html or panel_body or stats_block:
+        panel_html = f"""
+            <div class="hero-panel">
+              {panel_title_html}
+              {panel_body}
+              {stats_block}
+            </div>
+        """
+    spore_positions = [
+        {"x": "12%", "y": "30%", "s": "6px", "d": "0s"},
+        {"x": "22%", "y": "62%", "s": "8px", "d": "-2s"},
+        {"x": "38%", "y": "18%", "s": "5px", "d": "-4s"},
+        {"x": "52%", "y": "48%", "s": "7px", "d": "-1s"},
+        {"x": "66%", "y": "22%", "s": "4px", "d": "-3s"},
+        {"x": "74%", "y": "62%", "s": "6px", "d": "-5s"},
+        {"x": "86%", "y": "36%", "s": "5px", "d": "-6s"},
+        {"x": "92%", "y": "12%", "s": "4px", "d": "-7s"},
+    ]
+    spore_html = "".join(
+        f"<span style=\"--x:{item['x']}; --y:{item['y']}; --s:{item['s']}; --d:{item['d']};\"></span>"
+        for item in spore_positions
+    )
+    bio_field_html = f"""
+        <div class="bio-field">
+          <div class="bio-halo"></div>
+          <div class="bio-threads"></div>
+          <div class="bio-spores">{spore_html}</div>
+        </div>
+    """
+    return f"""
+      <section class="hero holobiontic-hero">
+        <div class="hero-orbit"></div>
+        {bio_field_html}
+        <div class="hero-inner">
+          <div class="hero-copy">
+            {kicker_html}
+            <h1>{_escape(hero_heading)}</h1>
+            {subtitle_html}
+            {hero_body}
+            <div class="hero-actions">{hero_cta}</div>
+            {badges_block}
+          </div>
+          <div class="hero-art">
+            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
+            {panel_html}
+          </div>
+        </div>
+      </section>
+      {overview_html}
+      {sections_html}
+      {page_body_html}
+"""
 
 
 def _render_sentient_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
@@ -1852,7 +2073,7 @@ def build_site() -> None:
     digests = _read_digests()
     meta_description = site.get("meta_description", "")
     layout_variant = (site.get("layout_variant") or "standard").strip().lower()
-    if layout_variant not in {"standard", "linkhub", "profile", "mescia_landing", "archive", "swarm", "rhizome", "sentient"}:
+    if layout_variant not in {"standard", "linkhub", "profile", "mescia_landing", "archive", "swarm", "rhizome", "sentient", "holobiontic"}:
         layout_variant = "standard"
     show_digest_home = str(site.get("show_digest_home", "")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -1879,6 +2100,8 @@ def build_site() -> None:
         # Include extra CSS for new layout variants
         if slug == "" and layout_variant in {"archive", "swarm", "rhizome", "sentient"}:
             extra_css += f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/extra_layouts.css")))}" />'
+        if layout_variant == "holobiontic":
+            extra_css += f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/holobiontic.css")))}" />'
 
         header = _render_header(slug, pages, current_path, site)
         footer = _render_footer(site, pages, current_path, links)
@@ -1952,6 +2175,18 @@ def build_site() -> None:
                 homepage_body = _render_rhizome_layout(site, pages, current_path)
             elif layout_variant == "sentient":
                 homepage_body = _render_sentient_layout(site, pages, current_path)
+            elif layout_variant == "holobiontic":
+                homepage_body = _render_holobiontic_layout(
+                    site,
+                    current_path,
+                    hero_heading,
+                    hero_body,
+                    hero_cta,
+                    hero_image_src,
+                    sections_html,
+                    overview_html,
+                    page_body_html,
+                )
             elif layout_variant == "profile":
                 homepage_body = f"""
       <section class="hero">
