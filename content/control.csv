@@ -1,14 +1,7 @@
-page_slug,status,order,kind,title,section,source_md,cta_text,cta_url,hero_image
-,active,0,page,Home,,,
-,active,1,hero,Holobiontic Earth,hero,welcome.md,Explore research,research,holobiontic-hero.svg
-,active,2,section,Manifesto,manifesto,manifesto.md,,,
-,active,3,section,Concept,concept,concept.md,,,
-,active,4,section,Ecosystems in Focus,ecosystems,ecosystems.md,,,
-,active,5,section,Research Themes,research,research.md,,,
-,active,6,section,Collaborations,collaborations,collaborations.md,,,
-manifesto,active,10,page,Manifesto,,,
-manifesto,active,1,section,Manifesto,manifesto_intro,manifesto.md,,,
-research,active,20,page,Research,,,
-research,active,1,section,Research Themes,research_intro,research.md,,,
-collaborations,active,30,page,Collaborations,,,
-collaborations,active,1,section,Collaborations,collab_intro,collaborations.md,,,
+page_slug,section,title,kind,order,source_md
+,,Home,page,0,
+,hero,Welcome,hero,1,welcome.md
+,manifesto,The Manifesto,section,2,manifesto.md
+,research,Research Pillars,research_grid,3,research.json
+,projects,Symbiotic Projects,project_grid_v2,4,projects.json
+,team,The Assembly,team_grid,5,team.json
