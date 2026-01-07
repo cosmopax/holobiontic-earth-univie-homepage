@@ -1,48 +1,27 @@
 {
     "site_name": "Holobiontic Earth",
-    "site_tagline": "Symbiosis, co-evolution, and planetary intelligence.",
-    "meta_description": "Holobiontic Earth is a University of Vienna research network studying symbiosis, co-evolution, and planetary intelligence.",
+    "site_tagline": "Metabolic Cybernetics & Planetary Symbiosis",
+    "meta_description": "Researching the Earth as a unified biological machine.",
     "domain": "https://holobiontic-earth.univie.ac.at",
-    "site_notice": "This digital habit is mutating. We are enhancing the substrate while maintaining full operational capacity. Mind the wet paint and shifting geometries.",
     "layout_variant": "holobiontic",
-    "logo_text": "Holobiontic Earth",
-    "nav_cta_text": "Read manifesto",
-    "nav_cta_target": "manifesto",
-    "contact_blurb": "An ecology-first research network exploring symbiosis, co-evolution, and planetary intelligence.",
-    "hero_kicker": "Holobiontic Earth | University of Vienna",
-    "hero_subtitle": "Ecology-first research for multi-species futures.",
-    "hero_panel_title": "Living systems, planetary futures",
-    "hero_panel_body": "We connect field ecology, microbial sensing, and speculative design to cultivate long-horizon stewardship.",
-    "hero_badges": [
-        "Symbiosis",
-        "Ecological sensing",
-        "Planetary intelligence",
-        "Speculative design"
-    ],
+    "hero_kicker": "Biotic Integration",
+    "hero_subtitle": "Decoding the Global Metabolism",
+    "hero_panel_title": "System Status",
+    "hero_panel_body": "Observing the transition from Anthropocene to Symbiocene. Our data streams track biospheric feedback loops in real-time.",
+    "hero_badges": ["Planetary Health", "Synthetic Symbiosis", "Deep Ecology"],
     "hero_stats": [
-        {
-            "value": "6+",
-            "label": "Field ecologies"
-        },
-        {
-            "value": "Active",
-            "label": "Research collaborations"
-        },
-        {
-            "value": "4",
-            "label": "Living labs"
-        }
+        {"value": "Active", "label": "Metabolic Threads"},
+        {"value": "Global", "label": "Field Deployment"},
+        {"value": "Infinity", "label": "Temporal Horizon"}
     ],
-    "manifesto": "We are the symbiosis.",
     "theme": {
-        "primary": "#1c4b3a",
-        "primary_dark": "#0b241a",
-        "primary_bright": "#4aa674",
-        "background": "#e9f4ec",
-        "paper": "#f7fbf5",
-        "accent": "#c08a36",
-        "text_main": "#0c1d15",
-        "text_muted": "#365447"
-    },
-    "og_image": "https://holobiontic-earth.univie.ac.at/assets/img/og-image.jpg"
+        "primary": "#1a472a",
+        "primary_dark": "#0d2615",
+        "primary_bright": "#2d7a46",
+        "background": "#e6f5e9",
+        "paper": "#f1fcf4",
+        "accent": "#c15b28",
+        "text_main": "#0a1f12",
+        "text_muted": "#2c4a3b"
+    }
 }

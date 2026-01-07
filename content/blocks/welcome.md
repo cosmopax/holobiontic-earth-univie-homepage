@@ -1,3 +1,7 @@
-Holobiontic Earth is a research collective exploring symbiosis, co-evolution, and planetary intelligence. We treat ecosystems as living computation: reciprocal, adaptive, and deeply entangled.
+# The Earth as an Engineered Metabolism
 
-Our work connects ecological theory, field observation, and design inquiry to build tools for multi-species stewardship and long-horizon care.
+Holobiontic Earth is a research initiative dedicated to the study of planetary-scale symbiosis. We do not view the biosphere as a collection of isolated organisms, but as a continuous, biological machine—a global holobiont.
+
+Our work integrates **Metabolic Cybernetics** with **Synthetic Ecology** to decode the feedback loops that sustain life across deep time. By engineering new symbiotic interfaces, we aim to facilitate a more stable integration between the computational technosphere and the organic world.
+
+*Welcome to the Assemblage.*

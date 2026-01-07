@@ -1,0 +1,72 @@
+[
+    {
+        "id": "gaia-loops",
+        "title": "Gaia Recursive Feedback",
+        "description": "Modelling planetary metabolism as a self-regulating cognitive network.",
+        "keywords": [
+            "Cybernetics",
+            "Deep Time",
+            "Ecology"
+        ],
+        "image": "assets/img/placeholder-hero.svg",
+        "type": "overlay",
+        "tier": "upper",
+        "deck": [
+            "assets/img/placeholder-grid.svg",
+            "assets/img/placeholder-lab.svg"
+        ],
+        "content_file": "overlays/gaia.md"
+    },
+    {
+        "id": "myco-sensing",
+        "title": "Mycorrhizal Sensing",
+        "description": "Networked fungal bio-sensors for soil health monitoring.",
+        "keywords": [
+            "Biotech",
+            "Networks",
+            "Fungi"
+        ],
+        "image": "assets/img/placeholder-lab.svg",
+        "type": "overlay",
+        "tier": "lower",
+        "deck": [
+            "assets/img/placeholder-hero.svg"
+        ],
+        "content_file": "overlays/myco.md"
+    },
+    {
+        "id": "interspecies-comm",
+        "title": "Interspecies Signals",
+        "description": "Deciphering chemical signaling between plants and insects using ML.",
+        "keywords": [
+            "AI",
+            "Linguistics",
+            "Biology"
+        ],
+        "image": "assets/img/placeholder-studio.svg",
+        "type": "overlay",
+        "tier": "lower",
+        "deck": [
+            "assets/img/placeholder-grid.svg"
+        ],
+        "content_file": "overlays/signals.md"
+    },
+    {
+        "id": "urban-rewilding",
+        "title": "Algorithmic Rewilding",
+        "description": "Using generative agents to design resilient urban biomes.",
+        "keywords": [
+            "Urbanism",
+            "Generative",
+            "Design"
+        ],
+        "image": "assets/img/placeholder-portrait.svg",
+        "type": "overlay",
+        "tier": "upper",
+        "deck": [
+            "assets/img/placeholder-lab.svg",
+            "assets/img/placeholder-studio.svg"
+        ],
+        "content_file": "overlays/rewilding.md"
+    }
+]

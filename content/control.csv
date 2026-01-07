@@ -5,3 +5,4 @@ page_slug,section,title,kind,order,source_md
 ,research,Research Pillars,research_grid,3,research.json
 ,projects,Symbiotic Projects,project_grid_v2,4,projects.json
 ,team,The Assembly,team_grid,5,team.json
+blog,,News,page,90,,

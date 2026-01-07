@@ -53,10 +53,10 @@ if command -v rsync >/dev/null 2>&1; then
   # Try rsync, but allow it to fail (set +e temporarily or use || true logic not needed if using if)
   if ! rsync -av "$SITE_DIR/" "$WEBROOT/"; then
       echo "Warning: rsync failed. Falling back to cp -a..."
-      cp -a "$SITE_DIR/." "$WEBROOT/"
+      cp -R "$SITE_DIR/." "$WEBROOT/"
   fi
 else
-  cp -a "$SITE_DIR/." "$WEBROOT/"
+  cp -R "$SITE_DIR/." "$WEBROOT/"
 fi
 
 # 4. Post-Deploy Configuration
