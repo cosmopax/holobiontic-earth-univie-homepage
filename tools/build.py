@@ -299,7 +299,12 @@ def _read_control() -> dict[str, dict[str, object]]:
     with CONTROL_CSV.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
-            data = {key: (value or "").strip() for key, value in row.items()}
+            data = {}
+            for key, value in row.items():
+                if isinstance(value, list):
+                    value = " ".join(value)
+                data[key] = (value or "").strip()
+            
             status = (data.get("status") or "").lower()
             if status in {"draft", "hidden", "archived", "inactive"}:
                 continue
@@ -895,7 +900,36 @@ def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
         name = _escape(p.get("name", ""))
         role = _escape(p.get("role", ""))
         bio = _escape(p.get("bio", ""))
+        email = p.get("email", "")
         img = _resolve_image_src(p.get("image", ""), current_path)
+        
+        # Links
+        links_html = ""
+        links = p.get("links", {})
+        if links:
+            link_items = []
+            for platform, url in links.items():
+                platform_name = platform.upper() if platform in ['orcid'] else platform.title()
+                link_items.append(f'<a href="{_escape(url)}" target="_blank" rel="noopener" class="team-link">{_escape(platform_name)}</a>')
+            links_html = '<div class="team-links">' + ' · '.join(link_items) + '</div>'
+        
+        # Research interests
+        interests = p.get("interests", [])
+        interests_html = ""
+        if interests:
+            tags = "".join(f'<span class="interest-tag">{_escape(i)}</span>' for i in interests[:4])
+            interests_html = f'<div class="team-interests">{tags}</div>'
+        
+        # Email
+        email_html = ""
+        if email:
+            email_html = f'<div class="team-email"><a href="mailto:{_escape(email)}">{_escape(email)}</a></div>'
+        
+        # Note (for special cases like AI agents or institutional entries)
+        note = p.get("note", "")
+        note_html = ""
+        if note:
+            note_html = f'<div class="team-note">{_escape(note)}</div>'
         
         cards.append(f"""
 <div class="team-card scroll-reveal">
@@ -904,6 +938,10 @@ def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
     <h3>{name}</h3>
     <span class="role">{role}</span>
     <p>{bio}</p>
+    {interests_html}
+    {links_html}
+    {email_html}
+    {note_html}
   </div>
 </div>""")
 
@@ -920,7 +958,6 @@ def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
   </div>
 </section>
 """
-
 def _render_pub_list(section: dict[str, str], current_path: Path) -> str:
     path = CONTENT_DIR / "publications.json"
     if not path.exists(): return "<p>Missing publications.json</p>"
@@ -968,6 +1005,32 @@ def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
         teaser = _escape(r.get("teaser", ""))
         desc = _escape(r.get("description", ""))
         img = _resolve_image_src(r.get("image", ""), current_path)
+        status = r.get("status", "")
+        funding = r.get("funding", "")
+        duration = r.get("duration", "")
+        team = r.get("team", [])
+        
+        # Status badge
+        status_html = ""
+        if status:
+            status_class = "exploratory" if status.lower() == "exploratory" else ""
+            status_html = f'<span class="research-status {status_class}">{_escape(status)}</span>'
+        
+        # Metadata section
+        meta_html = ""
+        meta_parts = []
+        if duration:
+            meta_parts.append(f'<strong>Duration:</strong> {_escape(duration)}')
+        if funding:
+            meta_parts.append(f'<strong>Funding:</strong> {_escape(funding)}')
+        if team:
+            team_str = ", ".join(team[:3])
+            if len(team) > 3:
+                team_str += f" +{len(team)-3} more"
+            meta_parts.append(f'<strong>Team:</strong> {_escape(team_str)}')
+        
+        if meta_parts or status_html:
+            meta_html = f'<div class="research-meta">{status_html}{"".join(f"<div>{p}</div>" for p in meta_parts)}</div>'
         
         cards.append(f"""
 <div class="research-card scroll-reveal">
@@ -978,6 +1041,7 @@ def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
     <details>
       <summary>Read More</summary>
       <p class="desc">{desc}</p>
+      {meta_html}
     </details>
   </div>
 </div>""")
@@ -995,7 +1059,6 @@ def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
   </div>
 </section>
 """
-
 def _render_linkhub_links(links: list[dict[str, str]]) -> str:
     if not links:
         return ""
@@ -1334,31 +1397,79 @@ def _build_css(site: dict[str, Any]) -> str:
 
     elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
         theme_overrides = f"""
-        /* Holobiontic / Bio Theme */
+        /* Holobiontic / Bio Theme (Living Upgrade) */
         body {{
-            background-color: {cream};
-            background-image: radial-gradient({primary}1a 1px, transparent 1px);
-            background-size: 30px 30px;
+            background-color: #0a1f12; /* Deep Forest */
+            color: #e0eadd;
+            background-image: radial-gradient(circle at 50% 50%, #1a472a 0%, #0a1f12 100%);
         }}
+        :root {{
+            --primary: #2d7a46;
+            --primary-dark: #0a1f12;
+            --primary-bright: #4ade80;
+            --accent: #c15b28;
+            --card: rgba(20, 50, 30, 0.6);
+            --card-border: rgba(45, 122, 70, 0.3);
+            --text-main: #e0eadd;
+            --text-muted: #8ba390;
+        }}
+        
         .site-header {{
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(45, 122, 70, 0.2);
+            background: rgba(10, 31, 18, 0.85);
+            border-bottom: 1px solid var(--card-border);
         }}
-        h1, h2, h3 {{ color: {primary_dark}; font-family: "Playfair Display", serif; }}
-        .card {{
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid rgba(45, 122, 70, 0.2);
-            box-shadow: 0 4px 20px rgba(45, 122, 70, 0.05);
-            border-radius: 12px;
+        
+        /* Bio-Field Animations */
+        .bio-field {{
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 0;
         }}
-        .button {{
-            background: linear-gradient(135deg, {primary_bright}, {primary_dark});
-            border-radius: 20px;
-            font-family: var(--font-body);
-            letter-spacing: 0.05em;
+        .bio-halo {{
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60vw; height: 60vw;
+            background: radial-gradient(circle, rgba(45, 122, 70, 0.15) 0%, transparent 70%);
+            animation: breathe 8s ease-in-out infinite;
         }}
-        .image-frame img {{ border-radius: 12px; }}
+        .bio-spores span {{
+            position: absolute;
+            width: var(--s); height: var(--s);
+            background: var(--primary-bright);
+            border-radius: 50%;
+            opacity: 0.6;
+            left: var(--x); top: var(--y);
+            box-shadow: 0 0 10px var(--primary-bright);
+            animation: float 10s ease-in-out infinite;
+            animation-delay: var(--d);
+        }}
+        
+        @keyframes breathe {{
+            0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.5; }}
+            50% {{ transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }}
+        }}
+        @keyframes float {{
+            0%, 100% {{ transform: translateY(0); opacity: 0.4; }}
+            50% {{ transform: translateY(-20px); opacity: 0.8; }}
+        }}
+        @keyframes organicPulse {{
+            0% {{ box-shadow: 0 0 0 0 rgba(45, 122, 70, 0.4); transform: scale(1); }}
+            50% {{ box-shadow: 0 0 20px 10px rgba(45, 122, 70, 0); transform: scale(1.01); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(45, 122, 70, 0); transform: scale(1); }}
+        }}
+        
+        /* Organic Cards */
+        .card, .profile-card, .content-block {{
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+        }}
+        .hero-inner {{ position: relative; z-index: 2; }}
         """
 
     return f"""
