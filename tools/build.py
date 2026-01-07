@@ -526,16 +526,55 @@ def _render_links(links: list[dict[str, str]]) -> str:
     return "<div class=\"tag-list\">" + "".join(items) + "</div>"
 
 
-def _render_head(title: str, css_href: str, description: str, extra_css: str = "") -> str:
+def _render_head(title: str, css_href: str, description: str, extra_css: str = "", site: dict = None, page_url: str = "", og_image: str = "") -> str:
+    """Render HTML head with comprehensive SEO metadata"""
     extra_css = extra_css.strip()
     if extra_css:
         extra_css = "\n  " + extra_css
+    
+    # Get site info for metadata
+    site = site or {}
+    site_name = site.get("site_name", "Academic Portfolio")
+    
+    # Construct full page title
+    full_title = f"{title} | {site_name}" if title != site_name else title
+    
+    # OpenGraph & Twitter metadata
+    og_meta = ""
+    if page_url:
+        og_meta = f"""
+  <!-- OpenGraph / Social Media -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="{_escape(page_url)}" />
+  <meta property="og:title" content="{_escape(full_title)}" />
+  <meta property="og:description" content="{_escape(description)}" />
+  <meta property="og:site_name" content="{_escape(site_name)}" />"""
+    
+    if og_image:
+        og_meta += f"""
+  <meta property="og:image" content="{_escape(og_image)}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="{_escape(og_image)}" />"""
+    else:
+        og_meta += """
+  <meta name="twitter:card" content="summary" />"""
+    
+    if page_url:
+        og_meta += f"""
+  <meta name="twitter:title" content="{_escape(full_title)}" />
+  <meta name="twitter:description" content="{_escape(description)}" />"""
+    
     return f"""
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{_escape(title)}</title>
+  <title>{_escape(full_title)}</title>
   <meta name="description" content="{_escape(description)}" />
+  <meta name="robots" content="index, follow" />
+  <meta name="author" content="{_escape(site_name)}" />{og_meta}
+  <link rel="canonical" href="{_escape(page_url)}" />
   <link rel="stylesheet" href="{_escape(css_href)}" />{extra_css}
 </head>
 """
@@ -675,13 +714,41 @@ def _render_section(
 """
 
 def _render_project_grid_v2(section: dict[str, str], current_path: Path, pages: dict[str, dict[str, object]]) -> str:
+    tiles_path = CONTENT_DIR / "profile_tiles.csv"
     projects_path = CONTENT_DIR / "projects.json"
-    if not projects_path.exists():
-        return "<p>Missing projects.json</p>"
-    
-    projects = json.loads(projects_path.read_text(encoding="utf-8"))
-    if not isinstance(projects, list):
-        return "<p>Invalid projects.json format</p>"
+    projects: list[dict[str, Any]] = []
+    if tiles_path.exists():
+        def parse_list(raw: str) -> list[str]:
+            if not raw:
+                return []
+            return [item.strip() for item in raw.split(";") if item.strip()]
+
+        with tiles_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                data = {key: (value or "").strip() for key, value in row.items()}
+                keywords = parse_list(data.get("keywords", ""))
+                deck = parse_list(data.get("deck", ""))
+                projects.append(
+                    {
+                        "id": data.get("id", ""),
+                        "title": data.get("title", ""),
+                        "description": data.get("description", ""),
+                        "keywords": keywords,
+                        "tier": data.get("tier", ""),
+                        "type": data.get("type", ""),
+                        "target": data.get("target", ""),
+                        "content_file": data.get("content_file", ""),
+                        "image": data.get("image", ""),
+                        "deck": deck,
+                    }
+                )
+    elif projects_path.exists():
+        projects = json.loads(projects_path.read_text(encoding="utf-8"))
+        if not isinstance(projects, list):
+            return "<p>Invalid projects.json format</p>"
+    else:
+        return "<p>Missing profile_tiles.csv</p>"
     
     upper_cards = []
     lower_cards = []
@@ -1101,7 +1168,7 @@ def _render_digest_page(digest: dict[str, str], pages: dict[str, dict[str, objec
     
     doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css)}
+{_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css, site=site, page_url=site.get('domain', '') + f"/digest/{slug}/")}
 <body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
   {search_ui}
   <div class="page-shell">
@@ -1160,8 +1227,8 @@ def _render_blog_post(post: dict[str, str], pages: dict[str, dict[str, object]])
     
     doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(post.get('title', ''), css_href, _read_site_config().get('meta_description', ''), extra_css=search_css)}
-<body data-newsletter-mode="{_escape(_read_site_config().get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(_read_site_config().get('newsletter_provider_url', ''))}">
+{_render_head(post.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css, site=site, page_url=site.get('domain', '') + f"/blog/{slug}/")}
+<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
   {search_ui}
   <div class="page-shell">
     {header}
@@ -1210,6 +1277,7 @@ def _build_css(site: dict[str, Any]) -> str:
 
     # Theme Specifics
     theme_overrides = ""
+    profile_lower_columns = str(site.get("profile_lower_columns") or "3").strip()
     layout_variant = site.get("layout_variant", "standard")
 
     if layout_variant == "sentient":
@@ -1266,74 +1334,31 @@ def _build_css(site: dict[str, Any]) -> str:
 
     elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
         theme_overrides = f"""
-        /* Holobiontic / Bio Theme (Living Upgrade) */
+        /* Holobiontic / Bio Theme */
         body {{
-            background-color: #0a1f12; /* Deep Forest */
-            color: #e0eadd;
-            background-image: radial-gradient(circle at 50% 50%, #1a472a 0%, #0a1f12 100%);
+            background-color: {cream};
+            background-image: radial-gradient({primary}1a 1px, transparent 1px);
+            background-size: 30px 30px;
         }}
-        :root {{
-            --primary: #2d7a46;
-            --primary-dark: #0a1f12;
-            --primary-bright: #4ade80;
-            --accent: #c15b28;
-            --card: rgba(20, 50, 30, 0.6);
-            --card-border: rgba(45, 122, 70, 0.3);
-            --text-main: #e0eadd;
-            --text-muted: #8ba390;
-        }}
-        
         .site-header {{
-            background: rgba(10, 31, 18, 0.85);
-            border-bottom: 1px solid var(--card-border);
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(45, 122, 70, 0.2);
         }}
-        
-        /* Bio-Field Animations */
-        .bio-field {{
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 0;
+        h1, h2, h3 {{ color: {primary_dark}; font-family: "Playfair Display", serif; }}
+        .card {{
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(45, 122, 70, 0.2);
+            box-shadow: 0 4px 20px rgba(45, 122, 70, 0.05);
+            border-radius: 12px;
         }}
-        .bio-halo {{
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 60vw; height: 60vw;
-            background: radial-gradient(circle, rgba(45, 122, 70, 0.15) 0%, transparent 70%);
-            animation: breathe 8s ease-in-out infinite;
+        .button {{
+            background: linear-gradient(135deg, {primary_bright}, {primary_dark});
+            border-radius: 20px;
+            font-family: var(--font-body);
+            letter-spacing: 0.05em;
         }}
-        .bio-spores span {{
-            position: absolute;
-            width: var(--s); height: var(--s);
-            background: var(--primary-bright);
-            border-radius: 50%;
-            opacity: 0.6;
-            left: var(--x); top: var(--y);
-            box-shadow: 0 0 10px var(--primary-bright);
-            animation: float 10s ease-in-out infinite;
-            animation-delay: var(--d);
-        }}
-        
-        @keyframes breathe {{
-            0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.5; }}
-            50% {{ transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }}
-        }}
-        @keyframes float {{
-            0%, 100% {{ transform: translateY(0); opacity: 0.4; }}
-            50% {{ transform: translateY(-20px); opacity: 0.8; }}
-        }}
-        
-        /* Organic Cards */
-        .card, .profile-card, .content-block {{
-            background: var(--card);
-            border: 1px solid var(--card-border);
-            border-radius: 16px;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 4px 30px rgba(0,0,0,0.3);
-        }}
-        .hero-inner {{ position: relative; z-index: 2; }}
+        .image-frame img {{ border-radius: 12px; }}
         """
 
     return f"""
@@ -1362,6 +1387,7 @@ def _build_css(site: dict[str, Any]) -> str:
   --font-heading: "Cormorant Garamond", serif;
   --font-body: "Outfit", sans-serif;
   --radius: 8px;
+  --profile-lower-columns: {profile_lower_columns};
   --max-width: 1200px;
 }}
 
@@ -1524,7 +1550,7 @@ main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); ma
 }}
 .profile-row--lower {{
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--profile-lower-columns), minmax(220px, 1fr));
 }}
 .profile-tile {{
   --tile-tilt-x: 0deg;
@@ -1825,9 +1851,15 @@ main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); ma
   .profile-row--upper .profile-tile:hover {{
     flex: 1 1 100%;
   }}
+  .profile-row--lower {{
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }}
 }}
 
 @media (max-width: 768px) {{
+  .profile-row--lower {{
+    grid-template-columns: 1fr;
+  }}
   .burger-nav a {{
     font-size: 1.5rem;
   }}
@@ -1866,7 +1898,7 @@ main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); ma
   text-transform: uppercase;
   letter-spacing: 0.05em;
   position: relative;
-  z-index: 9999;
+  z-index: 2000;
 }}
 
 .card, .profile-card {{
@@ -2040,9 +2072,9 @@ function setupTileFloat() {
         return;
       }
       const tier = tile.dataset.tier || 'lower';
-      const amp = tier === 'upper' ? 6 : 3;
-      const ampX = tier === 'upper' ? 4 : 2;
-      const speed = tier === 'upper' ? 0.001 : 0.0008;
+      const amp = tier === 'upper' ? 4.5 : 2.5;
+      const ampX = tier === 'upper' ? 3 : 1.8;
+      const speed = tier === 'upper' ? 0.0008 : 0.00065;
       const y = Math.sin(time * speed + offset) * amp;
       const x = Math.cos(time * speed + offset) * ampX;
       tile.style.setProperty('--float-y', `${y.toFixed(2)}px`);
@@ -2331,6 +2363,28 @@ function setupSiteNotice() {
   document.body.prepend(banner);
 }
 
+function setupRhizome() {
+  const container = document.querySelector('.rhizome-container');
+  if (!container) return;
+  const bioBtn = document.getElementById('bio-theme-btn');
+  const technoBtn = document.getElementById('techno-theme-btn');
+  
+  if (bioBtn && technoBtn) {
+    bioBtn.addEventListener('click', () => {
+        container.classList.remove('theme-techno');
+        container.classList.add('theme-bio');
+        bioBtn.classList.add('active');
+        technoBtn.classList.remove('active');
+    });
+    technoBtn.addEventListener('click', () => {
+        container.classList.remove('theme-bio');
+        container.classList.add('theme-techno');
+        technoBtn.classList.add('active');
+        bioBtn.classList.remove('active');
+    });
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   setupSiteNotice();
   revealOnScroll();
@@ -2342,98 +2396,9 @@ window.addEventListener('DOMContentLoaded', () => {
   smoothScroll();
   setupNewsletter();
   setupContactForm();
+  setupRhizome();
 });
 """.lstrip()
-
-
-def _render_holobiontic_layout(
-    site: dict[str, Any],
-    current_path: Path,
-    hero_heading: str,
-    hero_body: str,
-    hero_cta: str,
-    hero_image_src: str,
-    sections_html: str,
-    overview_html: str,
-    page_body_html: str,
-) -> str:
-    hero_kicker = _escape(site.get("hero_kicker") or site.get("site_name", ""))
-    hero_subtitle = _escape(site.get("hero_subtitle") or site.get("site_tagline", ""))
-    panel_title = _escape(site.get("hero_panel_title", ""))
-    panel_body_raw = site.get("hero_panel_body") or site.get("contact_blurb", "")
-    panel_body = _render_paragraphs(panel_body_raw)
-    badges = site.get("hero_badges") or []
-    if not isinstance(badges, list):
-        badges = []
-    badges_html = "".join(f"<span>{_escape(str(item))}</span>" for item in badges if item)
-    badges_block = f"<div class=\"hero-tags\">{badges_html}</div>" if badges_html else ""
-    stats = site.get("hero_stats") or []
-    stats_html = ""
-    if isinstance(stats, list):
-        for stat in stats:
-            if not isinstance(stat, dict):
-                continue
-            value = _escape(str(stat.get("value", "")))
-            label = _escape(str(stat.get("label", "")))
-            if value or label:
-                stats_html += f"<div><span>{value}</span>{label}</div>"
-    stats_block = f"<div class=\"hero-metrics\">{stats_html}</div>" if stats_html else ""
-    subtitle_html = f"<p class=\"subtitle\">{hero_subtitle}</p>" if hero_subtitle else ""
-    kicker_html = f"<p class=\"eyebrow\">{hero_kicker}</p>" if hero_kicker else ""
-    panel_title_html = f"<h3>{panel_title}</h3>" if panel_title else ""
-    panel_html = ""
-    if panel_title_html or panel_body or stats_block:
-        panel_html = f"""
-            <div class="hero-panel">
-              {panel_title_html}
-              {panel_body}
-              {stats_block}
-            </div>
-        """
-    spore_positions = [
-        {"x": "12%", "y": "30%", "s": "6px", "d": "0s"},
-        {"x": "22%", "y": "62%", "s": "8px", "d": "-2s"},
-        {"x": "38%", "y": "18%", "s": "5px", "d": "-4s"},
-        {"x": "52%", "y": "48%", "s": "7px", "d": "-1s"},
-        {"x": "66%", "y": "22%", "s": "4px", "d": "-3s"},
-        {"x": "74%", "y": "62%", "s": "6px", "d": "-5s"},
-        {"x": "86%", "y": "36%", "s": "5px", "d": "-6s"},
-        {"x": "92%", "y": "12%", "s": "4px", "d": "-7s"},
-    ]
-    spore_html = "".join(
-        f"<span style=\"--x:{item['x']}; --y:{item['y']}; --s:{item['s']}; --d:{item['d']};\"></span>"
-        for item in spore_positions
-    )
-    bio_field_html = f"""
-        <div class="bio-field">
-          <div class="bio-halo"></div>
-          <div class="bio-threads"></div>
-          <div class="bio-spores">{spore_html}</div>
-        </div>
-    """
-    return f"""
-      <section class="hero holobiontic-hero">
-        <div class="hero-orbit"></div>
-        {bio_field_html}
-        <div class="hero-inner">
-          <div class="hero-copy">
-            {kicker_html}
-            <h1>{_escape(hero_heading)}</h1>
-            {subtitle_html}
-            {hero_body}
-            <div class="hero-actions">{hero_cta}</div>
-            {badges_block}
-          </div>
-          <div class="hero-art">
-            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
-            {panel_html}
-          </div>
-        </div>
-      </section>
-      {overview_html}
-      {sections_html}
-      {page_body_html}
-"""
 
 
 def _render_archive_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path, hero_heading: str, hero_body: str, sections_html: str, overview_html: str, page_body_html: str) -> str:
@@ -3135,8 +3100,6 @@ def build_site() -> None:
                 homepage_body = _render_rhizome_layout(site, pages, current_path)
             elif layout_variant == "sentient":
                 homepage_body = _render_sentient_layout(site, pages, current_path)
-            elif layout_variant == "holobiontic" or (layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower()):
-                homepage_body = _render_holobiontic_layout(site, current_path, hero_heading, hero_body, hero_cta, hero_image_src, sections_html, overview_html, page_body_html)
             elif layout_variant == "profile":
                 homepage_body = f"""
       <section class="hero">
@@ -3251,7 +3214,7 @@ def build_site() -> None:
         
         doc = f"""<!doctype html>
 <html lang=\"en\">
-{_render_head(page['title'], css_href, meta_description, extra_css=extra_css + search_css)}
+{_render_head(page['title'], css_href, meta_description, extra_css=extra_css + search_css, site=site, page_url=site.get('domain', '') + ('/' if slug else ''), og_image=site.get('og_image', ''))}
 <body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
   {search_ui}
   <div class="page-shell">

@@ -3,6 +3,7 @@
     "site_tagline": "Symbiosis, co-evolution, and planetary intelligence.",
     "meta_description": "Holobiontic Earth is a University of Vienna research network studying symbiosis, co-evolution, and planetary intelligence.",
     "domain": "https://holobiontic-earth.univie.ac.at",
+    "site_notice": "This digital habit is mutating. We are enhancing the substrate while maintaining full operational capacity. Mind the wet paint and shifting geometries.",
     "layout_variant": "holobiontic",
     "logo_text": "Holobiontic Earth",
     "nav_cta_text": "Read manifesto",
@@ -24,7 +25,7 @@
             "label": "Field ecologies"
         },
         {
-            "value": "12+",
+            "value": "Active",
             "label": "Research collaborations"
         },
         {
@@ -42,5 +43,6 @@
         "accent": "#c08a36",
         "text_main": "#0c1d15",
         "text_muted": "#365447"
-    }
+    },
+    "og_image": "https://holobiontic-earth.univie.ac.at/assets/img/og-image.jpg"
 }
