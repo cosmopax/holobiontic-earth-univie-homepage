@@ -634,6 +634,162 @@ def _render_section(
 """
 
 
+
+def _render_project_grid_v2(section: dict[str, str], current_path: Path) -> str:
+    projects_path = CONTENT_DIR / "projects.json"
+    if not projects_path.exists():
+        return "<p>Missing projects.json</p>"
+    
+    projects = json.loads(projects_path.read_text(encoding="utf-8"))
+    if not isinstance(projects, list):
+        return "<p>Invalid projects.json format</p>"
+    
+    cards = []
+    overlays = []
+    
+    for proj in projects:
+        t = proj.get("title", "")
+        desc = proj.get("description", "")
+        img_raw = proj.get("image", "")
+        img = _resolve_image_src(img_raw, current_path)
+        p_type = proj.get("type", "link")
+        p_id = proj.get("id", "")
+        keywords = proj.get("keywords", [])
+        if isinstance(keywords, list):
+            keywords = ", ".join(keywords)
+            
+        action_attr = ""
+        link_target = "#"
+        
+        if p_type == "link":
+            link_target = proj.get("target", "#")
+            action_attr = f'target="_blank"' 
+        elif p_type == "overlay":
+            link_target = "#"
+            action_attr = f'data-type="overlay" data-overlay-id="{p_id}"'
+            content_file = proj.get("content_file", "")
+            overlay_body = ""
+            if content_file:
+                overlay_body = _render_markdown(_read_block(content_file))
+            
+            overlays.append(f"""
+<div class="project-overlay" id="overlay-{p_id}">
+  <div class="overlay-backdrop" data-close-overlay></div>
+  <div class="overlay-content">
+    <button class="overlay-close" data-close-overlay>&times;</button>
+    <div class="overlay-scroll">
+      <h2>{_escape(t)}</h2>
+      <img src="{_escape(img)}" alt="{_escape(t)}" class="overlay-hero">
+      <div class="overlay-body">{overlay_body}</div>
+    </div>
+  </div>
+</div>""")
+
+        cards.append(f"""
+<a href="{link_target}" class="project-card-v2 scroll-reveal" {action_attr}>
+  <div class="card-bg" data-bg="{_escape(img)}"></div>
+  <div class="card-content">
+    <h3>{_escape(t)}</h3>
+    <p class="keywords">{_escape(keywords)}</p>
+    <div class="card-hover-reveal">
+      <p>{_escape(desc)}</p>
+    </div>
+  </div>
+</a>""")
+
+    grid_html = "".join(cards)
+    overlays_html = "".join(overlays)
+    section_id = _escape(section.get("section_id", "projects"))
+    heading = _escape(section.get("title", "Projects"))
+    
+    return f"""
+<section class="content-section project-grid-section" id="{section_id}">
+  <div class="v2-grid-container">
+    <h2>{heading}</h2>
+    <div class="project-grid-v2-wrapper">
+      {grid_html}
+    </div>
+  </div>
+  {overlays_html}
+</section>
+"""
+
+def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
+    path = CONTENT_DIR / "team.json"
+    if not path.exists(): return "<p>Missing team.json</p>"
+    items = json.loads(path.read_text(encoding="utf-8"))
+    
+    cards = []
+    for p in items:
+        name = _escape(p.get("name", ""))
+        role = _escape(p.get("role", ""))
+        bio = _escape(p.get("bio", ""))
+        img = _resolve_image_src(p.get("image", ""), current_path)
+        
+        cards.append(f"""
+<div class="team-card scroll-reveal">
+  <div class="team-img" style="background-image: url('{_escape(img)}')"></div>
+  <div class="team-info">
+    <h3>{name}</h3>
+    <span class="role">{role}</span>
+    <p>{bio}</p>
+  </div>
+</div>""")
+
+    section_id = _escape(section.get("section_id", "team"))
+    heading = _escape(section.get("title", "Team"))
+    
+    return f"""
+<section class="content-section team-section" id="{section_id}">
+  <div class="v2-grid-container">
+    <h2>{heading}</h2>
+    <div class="team-grid">
+      {"".join(cards)}
+    </div>
+  </div>
+</section>
+"""
+
+def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
+    path = CONTENT_DIR / "research.json"
+    if not path.exists(): return "<p>Missing research.json</p>"
+    items = json.loads(path.read_text(encoding="utf-8"))
+    
+    cards = []
+    for r in items:
+        title = _escape(r.get("title", ""))
+        teaser = _escape(r.get("teaser", ""))
+        desc = _escape(r.get("description", ""))
+        img = _resolve_image_src(r.get("image", ""), current_path)
+        
+        cards.append(f"""
+<div class="research-card scroll-reveal">
+  <div class="research-img"><img src="{img}" alt="{title}"></div>
+  <div class="research-content">
+    <h3>{title}</h3>
+    <p class="teaser">{teaser}</p>
+    <details>
+      <summary>Read More</summary>
+      <p class="desc">{desc}</p>
+    </details>
+  </div>
+</div>""")
+
+    section_id = _escape(section.get("section_id", "research"))
+    heading = _escape(section.get("title", "Research Areas"))
+    
+    return f"""
+<section class="content-section research-section" id="{section_id}">
+  <div class="v2-grid-container">
+    <h2>{heading}</h2>
+    <div class="research-grid">
+      {"".join(cards)}
+    </div>
+  </div>
+</section>
+"""
+
+
 def _render_linkhub_links(links: list[dict[str, str]]) -> str:
     if not links:
         return ""
