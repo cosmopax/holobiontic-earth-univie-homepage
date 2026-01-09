@@ -1,26 +1,57 @@
 [
   {
-    "title": "Synthetic Symbiosis",
-    "teaser": "Engineering bacterial-fungal consortia for division of labor.",
-    "description": "We engineer bacterial-fungal consortia for division of labor in lignocellulose bioconversion. By establishing metabolic cross-feeding, we create stable, robust communities capable of processing complex substrates.",
-    "image": "assets/img/placeholder-lab.svg"
+    "title": "Symbiotic Computation",
+    "teaser": "Co-processing energy, information, and care across species.",
+    "description": "We investigate how microbes, plants, and infrastructures co-compute environmental signals. The goal is to model symbiotic intelligence as a distributed, metabolic computation.",
+    "image": "tile-bio-01.svg",
+    "status": "Active",
+    "duration": "2024–2027",
+    "team": ["Systems Ecology Lab", "Holobiontic Earth"]
   },
   {
-    "title": "Myco-Materials",
-    "teaser": "Programming fungal hyphae for living composites.",
-    "description": "Programming fungal hyphae to express variable chitin content, creating functional living composites for construction and sensing. These materials are self-healing and adaptive.",
-    "image": "assets/img/placeholder-studio.svg"
+    "title": "Ecological Sensing",
+    "teaser": "Low-impact instruments for long-horizon observation.",
+    "description": "We design sensing arrays that read microbial, soil, and atmospheric dynamics without disturbing local ecologies, prioritizing slow data and contextual stewardship.",
+    "image": "tile-bio-02.svg",
+    "status": "Active",
+    "duration": "2023–2026",
+    "funding": "Symbiocene Initiative",
+    "team": ["Field Nodes", "Urban Ecology Studio"]
   },
   {
-    "title": "Metabolic Sovereignty",
-    "teaser": "Decentralized energy generation using microbial cells.",
-    "description": "Decentralized energy generation using Photo-Microbial Fuel Cells and non-model fungal hosts optimized via genome-scale modeling. We aim for autonomous bio-energy systems.",
-    "image": "assets/img/placeholder-hero.svg"
+    "title": "Planetary Interfaces",
+    "teaser": "Visualizing Earth-system feedback in real time.",
+    "description": "We build live interfaces that surface biospheric feedback loops, creating public dashboards that reveal planetary metabolism and its thresholds.",
+    "image": "tile-bio-03.svg",
+    "status": "Exploratory",
+    "duration": "2025",
+    "team": ["Interface Lab", "Civic Partners"]
   },
   {
-    "title": "Planetary Remediation",
-    "teaser": "Deploying engineered myco-remediators.",
-    "description": "Deploying engineered myco-remediators to sequester heavy metals and degrade microplastics in soil systems. This is active ecological repair.",
-    "image": "assets/img/placeholder-grid.svg"
+    "title": "Regenerative Materials",
+    "teaser": "Living composites for adaptive infrastructure.",
+    "description": "From mycelial scaffolds to bio-reactive textiles, we prototype materials that respond to environmental signals and repair themselves over time.",
+    "image": "tile-bio-04.svg",
+    "status": "Active",
+    "duration": "2022–2025",
+    "team": ["Biofabrication Lab"]
+  },
+  {
+    "title": "Interspecies Signal Translation",
+    "teaser": "Decoding chemical languages between organisms.",
+    "description": "We map plant, fungal, and insect chemical signaling using ML to identify patterns that reveal cooperative behaviors and ecological stress.",
+    "image": "tile-bio-05.svg",
+    "status": "Active",
+    "duration": "2024–2026",
+    "team": ["Neuroecology Group"]
+  },
+  {
+    "title": "Governance for Symbiosis",
+    "teaser": "Protocols and rituals for shared planetary stewardship.",
+    "description": "We co-design policy frameworks that translate ecological signals into civic protocols, enabling anticipatory governance for multi-species futures.",
+    "image": "tile-bio-06.svg",
+    "status": "Exploratory",
+    "duration": "2025–2027",
+    "team": ["Policy Studio", "Legal Research Unit"]
   }
 ]

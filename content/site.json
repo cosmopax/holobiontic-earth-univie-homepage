@@ -3,7 +3,7 @@
     "site_tagline": "Metabolic Cybernetics & Planetary Symbiosis",
     "meta_description": "Researching the Earth as a unified biological machine.",
     "domain": "https://holobiontic-earth.univie.ac.at",
-    "layout_variant": "holobiontic",
+    "layout_variant": "standard",
     "hero_kicker": "Biotic Integration",
     "hero_subtitle": "Decoding the Global Metabolism",
     "hero_panel_title": "System Status",
@@ -14,14 +14,15 @@
         {"value": "Global", "label": "Field Deployment"},
         {"value": "Infinity", "label": "Temporal Horizon"}
     ],
+    "profile_lower_columns": 3,
     "theme": {
-        "primary": "#1a472a",
-        "primary_dark": "#0d2615",
-        "primary_bright": "#2d7a46",
-        "background": "#e6f5e9",
-        "paper": "#f1fcf4",
-        "accent": "#c15b28",
-        "text_main": "#0a1f12",
-        "text_muted": "#2c4a3b"
+        "primary": "#2d7a46",
+        "primary_dark": "#0a1f12",
+        "primary_bright": "#4ade80",
+        "background": "#0a1f12",
+        "paper": "#101e16",
+        "accent": "#caa86a",
+        "text_main": "#e4efe6",
+        "text_muted": "#9ab7a1"
     }
 }

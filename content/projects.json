@@ -1,72 +1,164 @@
 [
-    {
-        "id": "gaia-loops",
-        "title": "Gaia Recursive Feedback",
-        "description": "Modelling planetary metabolism as a self-regulating cognitive network.",
-        "keywords": [
-            "Cybernetics",
-            "Deep Time",
-            "Ecology"
-        ],
-        "image": "assets/img/placeholder-hero.svg",
-        "type": "overlay",
-        "tier": "upper",
-        "deck": [
-            "assets/img/placeholder-grid.svg",
-            "assets/img/placeholder-lab.svg"
-        ],
-        "content_file": "overlays/gaia.md"
-    },
-    {
-        "id": "myco-sensing",
-        "title": "Mycorrhizal Sensing",
-        "description": "Networked fungal bio-sensors for soil health monitoring.",
-        "keywords": [
-            "Biotech",
-            "Networks",
-            "Fungi"
-        ],
-        "image": "assets/img/placeholder-lab.svg",
-        "type": "overlay",
-        "tier": "lower",
-        "deck": [
-            "assets/img/placeholder-hero.svg"
-        ],
-        "content_file": "overlays/myco.md"
-    },
-    {
-        "id": "interspecies-comm",
-        "title": "Interspecies Signals",
-        "description": "Deciphering chemical signaling between plants and insects using ML.",
-        "keywords": [
-            "AI",
-            "Linguistics",
-            "Biology"
-        ],
-        "image": "assets/img/placeholder-studio.svg",
-        "type": "overlay",
-        "tier": "lower",
-        "deck": [
-            "assets/img/placeholder-grid.svg"
-        ],
-        "content_file": "overlays/signals.md"
-    },
-    {
-        "id": "urban-rewilding",
-        "title": "Algorithmic Rewilding",
-        "description": "Using generative agents to design resilient urban biomes.",
-        "keywords": [
-            "Urbanism",
-            "Generative",
-            "Design"
-        ],
-        "image": "assets/img/placeholder-portrait.svg",
-        "type": "overlay",
-        "tier": "upper",
-        "deck": [
-            "assets/img/placeholder-lab.svg",
-            "assets/img/placeholder-studio.svg"
-        ],
-        "content_file": "overlays/rewilding.md"
-    }
+  {
+    "id": "gaia-loops",
+    "title": "Gaia Recursive Feedback",
+    "description": "Modeling planetary metabolism as a self-regulating cognitive network.",
+    "keywords": [
+      "Planetary Metabolism",
+      "Systems Ecology",
+      "Feedback Loops"
+    ],
+    "image": "tile-bio-01.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-01.svg",
+      "tile-bio-02.svg"
+    ],
+    "content_file": "overlays/gaia.md"
+  },
+  {
+    "id": "myco-sensing",
+    "title": "Mycorrhizal Sensing",
+    "description": "Networked fungal biosensors for soil health and long-horizon monitoring.",
+    "keywords": [
+      "Fungal Networks",
+      "Soil Intelligence",
+      "Biosensing"
+    ],
+    "image": "tile-bio-03.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-03.svg",
+      "tile-bio-04.svg"
+    ],
+    "content_file": "overlays/myco.md"
+  },
+  {
+    "id": "interspecies-comm",
+    "title": "Interspecies Signals",
+    "description": "Decoding chemical signaling between plants and insects using ML.",
+    "keywords": [
+      "Chemical Ecology",
+      "AI Translation",
+      "Symbiosis"
+    ],
+    "image": "tile-bio-05.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-05.svg",
+      "tile-bio-06.svg"
+    ],
+    "content_file": "overlays/signals.md"
+  },
+  {
+    "id": "urban-rewilding",
+    "title": "Algorithmic Rewilding",
+    "description": "Generative agents for resilient urban biomes.",
+    "keywords": [
+      "Regenerative Design",
+      "Urban Ecology",
+      "Simulation"
+    ],
+    "image": "tile-bio-07.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-07.svg",
+      "tile-bio-08.svg"
+    ],
+    "content_file": "overlays/rewilding.md"
+  },
+  {
+    "id": "planetary-interfaces",
+    "title": "Planetary Interfaces",
+    "description": "Live dashboards that surface Earth-system feedback in real time.",
+    "keywords": [
+      "Interfaces",
+      "Earth Systems",
+      "Data Rituals"
+    ],
+    "image": "tile-bio-09.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-09.svg",
+      "tile-bio-10.svg"
+    ],
+    "content_file": "overlays/planetary.md"
+  },
+  {
+    "id": "symbiotic-computation",
+    "title": "Symbiotic Computation",
+    "description": "Co-processing energy and information across species.",
+    "keywords": [
+      "Distributed Intelligence",
+      "Metabolism",
+      "Coordination"
+    ],
+    "image": "tile-bio-11.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-11.svg",
+      "tile-bio-12.svg"
+    ],
+    "content_file": "overlays/symbiotic.md"
+  },
+  {
+    "id": "profile-research",
+    "title": "Research Programs",
+    "description": "Flagship fieldwork and modeling initiatives.",
+    "keywords": [
+      "Ecology",
+      "Sensing",
+      "Systems"
+    ],
+    "image": "tile-bio-02.svg",
+    "type": "page",
+    "tier": "lower",
+    "deck": [
+      "tile-bio-02.svg",
+      "tile-bio-03.svg"
+    ],
+    "target": "research"
+  },
+  {
+    "id": "profile-team",
+    "title": "The Assembly",
+    "description": "People and partners shaping the work.",
+    "keywords": [
+      "Field Nodes",
+      "Studios",
+      "Partners"
+    ],
+    "image": "tile-bio-04.svg",
+    "type": "page",
+    "tier": "lower",
+    "deck": [
+      "tile-bio-04.svg",
+      "tile-bio-05.svg"
+    ],
+    "target": "team"
+  },
+  {
+    "id": "profile-publications",
+    "title": "Publications",
+    "description": "Selected papers, protocols, and public outputs.",
+    "keywords": [
+      "Papers",
+      "Protocols",
+      "Open Research"
+    ],
+    "image": "tile-bio-06.svg",
+    "type": "page",
+    "tier": "lower",
+    "deck": [
+      "tile-bio-06.svg",
+      "tile-bio-07.svg"
+    ],
+    "target": "publications"
+  }
 ]

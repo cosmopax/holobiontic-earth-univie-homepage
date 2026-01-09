@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 580" role="img" aria-label="Holobiontic tile 7">
+  <defs>
+    <linearGradient id="g7" x1="0" y1="0" x2="1" y2="1" gradientTransform="rotate(69)">
+      <stop offset="0%" stop-color="#12281a" />
+      <stop offset="55%" stop-color="#4ade80" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#caa86a" stop-opacity="0.45" />
+    </linearGradient>
+    <radialGradient id="r7" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#caa86a" stop-opacity="0.6" />
+      <stop offset="70%" stop-color="#12281a" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#12281a" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="900" height="580" fill="#12281a" />
+  <rect width="900" height="580" fill="url(#g7)" opacity="0.92" />
+  <circle cx="560" cy="175" r="125" fill="url(#r7)" />
+  <circle cx="340" cy="405" r="89" fill="#caa86a" fill-opacity="0.18" />
+  <path d="M 0 406 C 270 348, 540 522, 900 435 L 900 580 L 0 580 Z" fill="#1a472a" fill-opacity="0.12" />
+  <path d="M 0 116 C 225 29, 630 58, 900 145" stroke="#caa86a" stroke-opacity="0.35" stroke-width="2" fill="none" />
+</svg>

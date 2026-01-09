@@ -1,8 +1,26 @@
 [
-    {
-        "name": "Earth Assembly",
-        "role": "Symbiotic Researchers",
-        "bio": "A collective of biological and synthetic agents documenting the Earth's metabolism.",
-        "image": "assets/img/placeholder-grid.svg"
-    }
+  {
+    "name": "Holobiontic Earth Assembly",
+    "role": "Systems Ecology & Symbiosis",
+    "bio": "Coordinating the cross-species research agenda and field node deployments.",
+    "image": "tile-bio-07.svg"
+  },
+  {
+    "name": "Field Nodes",
+    "role": "Riparian + Soil Intelligence",
+    "bio": "Embedded sensing teams working across river systems, soils, and coastal margins.",
+    "image": "tile-bio-08.svg"
+  },
+  {
+    "name": "Interface Lab",
+    "role": "Planetary Dashboards",
+    "bio": "Designing interfaces that translate ecological data into public understanding.",
+    "image": "tile-bio-09.svg"
+  },
+  {
+    "name": "Civic Stewardship Studio",
+    "role": "Policy & Ritual Design",
+    "bio": "Co-developing governance protocols for long-horizon planetary care.",
+    "image": "tile-bio-10.svg"
+  }
 ]

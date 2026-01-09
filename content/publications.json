@@ -1,16 +1,37 @@
 [
-    {
-        "title": "Symbiotic Architectures for Planetary Computing",
-        "authors": "Schimpl, P. et al.",
-        "venue": "Nature Machine Intelligence",
-        "year": "2024",
-        "link": "#"
-    },
-    {
-        "title": "Mycelial Networks as Biological Internet",
-        "authors": "Cosmopax Research Group",
-        "venue": "Journal of Artificial Life",
-        "year": "2023",
-        "link": "#"
-    }
+  {
+    "title": "Planetary Symbiosis: A Systems Framework",
+    "authors": "Schimpl, P.; Holobiontic Earth Assembly",
+    "venue": "Journal of Systems Ecology",
+    "year": "2025",
+    "link": "#"
+  },
+  {
+    "title": "Symbiotic Computation in Soil Networks",
+    "authors": "Field Nodes Consortium",
+    "venue": "Ecological Informatics",
+    "year": "2024",
+    "link": "#"
+  },
+  {
+    "title": "Designing Interfaces for Planetary Feedback",
+    "authors": "Interface Lab",
+    "venue": "ACM Designing Interactive Systems",
+    "year": "2024",
+    "link": "#"
+  },
+  {
+    "title": "Governance Protocols for Symbiocene Futures",
+    "authors": "Civic Stewardship Studio",
+    "venue": "Futures",
+    "year": "2023",
+    "link": "#"
+  },
+  {
+    "title": "Mycelial Materials for Regenerative Infrastructure",
+    "authors": "Biofabrication Lab",
+    "venue": "Materials Today Bio",
+    "year": "2023",
+    "link": "#"
+  }
 ]

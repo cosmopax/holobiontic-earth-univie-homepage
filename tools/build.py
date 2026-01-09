@@ -958,6 +958,7 @@ def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
   </div>
 </section>
 """
+
 def _render_pub_list(section: dict[str, str], current_path: Path) -> str:
     path = CONTENT_DIR / "publications.json"
     if not path.exists(): return "<p>Missing publications.json</p>"
@@ -1059,6 +1060,7 @@ def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
   </div>
 </section>
 """
+
 def _render_linkhub_links(links: list[dict[str, str]]) -> str:
     if not links:
         return ""
@@ -1397,79 +1399,86 @@ def _build_css(site: dict[str, Any]) -> str:
 
     elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
         theme_overrides = f"""
-        /* Holobiontic / Bio Theme (Living Upgrade) */
-        body {{
-            background-color: #0a1f12; /* Deep Forest */
-            color: #e0eadd;
-            background-image: radial-gradient(circle at 50% 50%, #1a472a 0%, #0a1f12 100%);
-        }}
+        /* Holobiontic / Bio Theme */
         :root {{
-            --primary: #2d7a46;
-            --primary-dark: #0a1f12;
-            --primary-bright: #4ade80;
-            --accent: #c15b28;
-            --card: rgba(20, 50, 30, 0.6);
-            --card-border: rgba(45, 122, 70, 0.3);
-            --text-main: #e0eadd;
-            --text-muted: #8ba390;
+            color-scheme: dark;
+            --card: rgba(10, 31, 18, 0.75);
+            --card-border: rgba(74, 222, 128, 0.22);
+            --glass: rgba(12, 30, 20, 0.6);
         }}
-        
+        body {{
+            background-color: var(--primary-dark);
+            background-image:
+              radial-gradient(circle at 15% 20%, rgba(74, 222, 128, 0.18), transparent 45%),
+              radial-gradient(circle at 80% 10%, rgba(202, 168, 106, 0.15), transparent 35%),
+              radial-gradient(circle at 40% 80%, rgba(45, 122, 70, 0.2), transparent 50%),
+              linear-gradient(180deg, rgba(10, 31, 18, 0.95) 0%, rgba(5, 16, 11, 0.98) 100%);
+        }}
+        body::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image:
+              radial-gradient(circle at 20% 30%, rgba(74, 222, 128, 0.08), transparent 45%),
+              radial-gradient(circle at 70% 40%, rgba(202, 168, 106, 0.08), transparent 50%);
+            opacity: 0.6;
+            z-index: -1;
+            pointer-events: none;
+        }}
         .site-header {{
-            background: rgba(10, 31, 18, 0.85);
+            background: rgba(7, 20, 12, 0.85);
+            backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--card-border);
         }}
-        
-        /* Bio-Field Animations */
-        .bio-field {{
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 0;
+        .site-header.scrolled {{
+            background: rgba(7, 20, 12, 0.95);
         }}
-        .bio-halo {{
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 60vw; height: 60vw;
-            background: radial-gradient(circle, rgba(45, 122, 70, 0.15) 0%, transparent 70%);
-            animation: breathe 8s ease-in-out infinite;
-        }}
-        .bio-spores span {{
-            position: absolute;
-            width: var(--s); height: var(--s);
-            background: var(--primary-bright);
-            border-radius: 50%;
-            opacity: 0.6;
-            left: var(--x); top: var(--y);
-            box-shadow: 0 0 10px var(--primary-bright);
-            animation: float 10s ease-in-out infinite;
-            animation-delay: var(--d);
-        }}
-        
-        @keyframes breathe {{
-            0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.5; }}
-            50% {{ transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }}
-        }}
-        @keyframes float {{
-            0%, 100% {{ transform: translateY(0); opacity: 0.4; }}
-            50% {{ transform: translateY(-20px); opacity: 0.8; }}
-        }}
-        @keyframes organicPulse {{
-            0% {{ box-shadow: 0 0 0 0 rgba(45, 122, 70, 0.4); transform: scale(1); }}
-            50% {{ box-shadow: 0 0 20px 10px rgba(45, 122, 70, 0); transform: scale(1.01); }}
-            100% {{ box-shadow: 0 0 0 0 rgba(45, 122, 70, 0); transform: scale(1); }}
-        }}
-        
-        /* Organic Cards */
+        h1, h2, h3 {{ color: var(--primary-bright); font-family: "Playfair Display", serif; }}
+        h2 {{ border-bottom: 1px solid rgba(202, 168, 106, 0.45); }}
         .card, .profile-card, .content-block {{
             background: var(--card);
             border: 1px solid var(--card-border);
+            box-shadow: 0 24px 45px -35px rgba(0, 0, 0, 0.7);
             border-radius: 16px;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
         }}
-        .hero-inner {{ position: relative; z-index: 2; }}
+        .project-grid-section .profile-tile {{
+            background: rgba(6, 18, 12, 0.6);
+        }}
+        .page-hero {{
+            position: relative;
+            overflow: hidden;
+        }}
+        .page-hero::before {{
+            content: "";
+            position: absolute;
+            inset: -10% -5% auto -5%;
+            height: 140%;
+            background: radial-gradient(circle at 35% 35%, rgba(74, 222, 128, 0.18), transparent 60%);
+            opacity: 0.8;
+            pointer-events: none;
+        }}
+        .page-hero::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 70% 20%, rgba(202, 168, 106, 0.18), transparent 50%);
+            opacity: 0.7;
+            animation: tide 12s ease-in-out infinite;
+            pointer-events: none;
+        }}
+        @keyframes tide {{
+            0%, 100% {{ opacity: 0.5; transform: translateY(0); }}
+            50% {{ opacity: 0.85; transform: translateY(-8px); }}
+        }}
+        .button {{
+            background: linear-gradient(135deg, var(--primary-bright), var(--primary-dark));
+            border-radius: 20px;
+            border-color: transparent;
+            font-family: var(--font-body);
+            letter-spacing: 0.05em;
+        }}
+        .image-frame img {{ border-radius: 12px; }}
         """
 
     return f"""

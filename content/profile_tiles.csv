@@ -1,0 +1,10 @@
+id,title,description,keywords,tier,type,target,content_file,image,deck
+gaia-loops,Gaia Recursive Feedback,Modeling planetary metabolism as a self-regulating cognitive network.,Planetary Metabolism;Systems Ecology;Feedback Loops,upper,overlay,,overlays/gaia.md,tile-bio-01.svg,tile-bio-01.svg;tile-bio-02.svg
+myco-sensing,Mycorrhizal Sensing,Networked fungal biosensors for soil health and long-horizon monitoring.,Fungal Networks;Soil Intelligence;Biosensing,upper,overlay,,overlays/myco.md,tile-bio-03.svg,tile-bio-03.svg;tile-bio-04.svg
+interspecies-comm,Interspecies Signals,Decoding chemical signaling between plants and insects using ML.,Chemical Ecology;AI Translation;Symbiosis,upper,overlay,,overlays/signals.md,tile-bio-05.svg,tile-bio-05.svg;tile-bio-06.svg
+urban-rewilding,Algorithmic Rewilding,Generative agents for resilient urban biomes.,Regenerative Design;Urban Ecology;Simulation,upper,overlay,,overlays/rewilding.md,tile-bio-07.svg,tile-bio-07.svg;tile-bio-08.svg
+planetary-interfaces,Planetary Interfaces,Live dashboards that surface Earth-system feedback in real time.,Interfaces;Earth Systems;Data Rituals,upper,overlay,,overlays/planetary.md,tile-bio-09.svg,tile-bio-09.svg;tile-bio-10.svg
+symbiotic-computation,Symbiotic Computation,Co-processing energy and information across species.,Distributed Intelligence;Metabolism;Coordination,upper,overlay,,overlays/symbiotic.md,tile-bio-11.svg,tile-bio-11.svg;tile-bio-12.svg
+profile-research,Research Programs,Flagship fieldwork and modeling initiatives.,Ecology;Sensing;Systems,lower,page,research,,tile-bio-02.svg,tile-bio-02.svg;tile-bio-03.svg
+profile-team,The Assembly,People and partners shaping the work.,Field Nodes;Studios;Partners,lower,page,team,,tile-bio-04.svg,tile-bio-04.svg;tile-bio-05.svg
+profile-publications,Publications,"Selected papers, protocols, and public outputs.",Papers;Protocols;Open Research,lower,page,publications,,tile-bio-06.svg,tile-bio-06.svg;tile-bio-07.svg
