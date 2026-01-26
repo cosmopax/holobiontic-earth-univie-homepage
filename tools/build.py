@@ -510,19 +510,19 @@ def render_head(site, page_title, current_slug="/"):
       text-transform: uppercase;
     }}
 
-    .logo-group {
+    .logo-group {{
       position: relative;
       display: flex;
       align-items: center;
       gap: 12px;
-    }
-    .logo-group:hover .nav-links-wrapper {
+    }}
+    .logo-group:hover .nav-links-wrapper {{
       opacity: 1;
       visibility: visible;
       transform: translateY(0);
       pointer-events: auto;
-    }
-    .nav-links-wrapper {
+    }}
+    .nav-links-wrapper {{
       position: absolute;
       top: 100%;
       left: -12px;
@@ -532,8 +532,8 @@ def render_head(site, page_title, current_slug="/"):
       transform: translateY(-8px);
       transition: all 0.2s var(--ease);
       pointer-events: none;
-    }
-    .nav-links {
+    }}
+    .nav-links {{
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -543,7 +543,7 @@ def render_head(site, page_title, current_slug="/"):
       border-radius: 12px;
       min-width: 220px;
       box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
-    }
+    }}
 
     .toggle {{
       border: 1px solid rgba(255, 255, 255, 0.15);

@@ -1,28 +1,15 @@
 {
+    "site_title": "Holobiontic Earth",
     "site_name": "Holobiontic Earth",
-    "site_tagline": "Metabolic Cybernetics & Planetary Symbiosis",
-    "meta_description": "Researching the Earth as a unified biological machine.",
-    "domain": "https://holobiontic-earth.univie.ac.at",
+    "tagline": "The Digital Cortex of a Planetary Superorganism",
+    "intro_title": "The Autopoietic Codex",
+    "intro_subtitle": "Architecting Self-Improving Agentic Systems",
+    "meta_description": "A research platform for autonomous biological and digital systems.",
+    "accent": "#d4af37",
+    "bg_dark": "#05110e",
+    "text_light": "#e0e0e0",
     "layout_variant": "standard",
-    "hero_kicker": "Biotic Integration",
-    "hero_subtitle": "Decoding the Global Metabolism",
-    "hero_panel_title": "System Status",
-    "hero_panel_body": "Observing the transition from Anthropocene to Symbiocene. Our data streams track biospheric feedback loops in real-time.",
-    "hero_badges": ["Planetary Health", "Synthetic Symbiosis", "Deep Ecology"],
-    "hero_stats": [
-        {"value": "Active", "label": "Metabolic Threads"},
-        {"value": "Global", "label": "Field Deployment"},
-        {"value": "Infinity", "label": "Temporal Horizon"}
-    ],
-    "profile_lower_columns": 3,
-    "theme": {
-        "primary": "#2d7a46",
-        "primary_dark": "#0a1f12",
-        "primary_bright": "#4ade80",
-        "background": "#0a1f12",
-        "paper": "#101e16",
-        "accent": "#caa86a",
-        "text_main": "#e4efe6",
-        "text_muted": "#9ab7a1"
-    }
+    "intro_overlay": "true",
+    "show_digest_home": "true",
+    "footer_text": "Symbiosis is the new compute."
 }

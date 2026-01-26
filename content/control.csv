@@ -1,21 +1,5 @@
-page_slug,section,title,kind,order,source_md,active,width,style_variant
-,intro,Holobiontic Earth,hero,1,welcome.md,true,full,glass
-,manifesto,Manifesto,section,2,manifesto.md,true,full,paper
-,concept,Concept,section,3,concept.md,true,full,paper
-,research_intro,Research Threads,research_grid,4,research.md,true,full,paper
-,profile_intro,Symbiotic Programs,project_grid_v2,5,projects.md,true,full,terminal
-,ecosystems,Ecosystems in Focus,section,6,ecosystems.md,true,full,paper
-,collaborations,Collaborations,section,7,collaborations.md,true,full,glass
-,team_intro,The Assembly,team_grid,8,team.md,true,full,glass
-,pubs_intro,Publications,pub_list,9,publications.md,true,full,glass
-research,,Research,page,10,,true,full,
-research,research_hero,Research,hero,1,research_page.md,true,full,
-research,research_grid,Research,research_grid,2,research.md,true,full,
-research,ecosystems,Ecosystems,section,3,ecosystems.md,true,full,
-team,,Team,page,20,,true,full,
-team,team_hero,The Assembly,hero,1,team_page.md,true,full,
-team,team_grid,Team,team_grid,2,team.md,true,full,
-team,collaborations,Collaborations,section,3,collaborations.md,true,full,
-publications,,Publications,page,30,,true,full,
-publications,pubs_hero,Publications,hero,1,publications_page.md,true,full,
-publications,pubs_list,Publications,pub_list,2,publications.md,true,full,
+id,page_slug,title,source_md,kind,section,order,status,hero_image,cta_text,cta_url
+home,/,Home,,hero,,0,active,,Read Manifesto,#manifesto
+manif,/,Manifesto,blocks/manifesto.md,section,main,1,active,,,
+proj,/,Research Projects,blocks/research_tiles.md,research_tiles,main,2,active,,,
+dig,/,Morning Briefing,,digest_list,main,3,active,,,
