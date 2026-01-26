@@ -1,5 +1,59 @@
 [
   {
+    "id": "scholar-flow",
+    "title": "ScholarFlow",
+    "description": "Autonomous research swarm for acquisition and synthesis of academic knowledge.",
+    "keywords": [
+      "Agential Swarm",
+      "Knowledge Synthesis",
+      "Autonomous Research"
+    ],
+    "image": "tile-bio-01.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-01.svg",
+      "tile-bio-02.svg"
+    ],
+    "content_file": "overlays/scholarflow.md"
+  },
+  {
+    "id": "autopoietic-codex",
+    "title": "Autopoietic Codex",
+    "description": "Self-writing documentation systems that evolve with the codebase.",
+    "keywords": [
+      "Self-Reference",
+      "Living Ops",
+      "Documentation"
+    ],
+    "image": "tile-bio-03.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-03.svg",
+      "tile-bio-04.svg"
+    ],
+    "content_file": "overlays/autopoietic.md"
+  },
+  {
+    "id": "biolab-interface",
+    "title": "Biolab Interface",
+    "description": "Digital twin interfaces for wet-lab automation and observation.",
+    "keywords": [
+      "HCI",
+      "Wet-Lab",
+      "Interfaces"
+    ],
+    "image": "tile-bio-05.svg",
+    "type": "overlay",
+    "tier": "upper",
+    "deck": [
+      "tile-bio-05.svg",
+      "tile-bio-06.svg"
+    ],
+    "content_file": "overlays/biolab.md"
+  },
+  {
     "id": "gaia-loops",
     "title": "Gaia Recursive Feedback",
     "description": "Modeling planetary metabolism as a self-regulating cognitive network.",
