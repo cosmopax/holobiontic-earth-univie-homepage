@@ -25,7 +25,7 @@ def _matches_forbidden(url: str) -> str | None:
 
 def main() -> int:
     if not SITE_DIR.exists():
-        print("[ALI] site/ directory not found. Run python3 tools/build.py first.")
+        print("[PATRICK] site/ directory not found. Run python3 tools/build.py first.")
         return 1
 
     hits: list[tuple[Path, str, str]] = []
@@ -40,13 +40,13 @@ def main() -> int:
                 hits.append((path, url.strip(), match))
 
     if hits:
-        print("[ALI] Forbidden external targets found:")
+        print("[PATRICK] Forbidden external targets found:")
         for path, url, match in hits:
             rel = path.relative_to(BASE_DIR)
-            print(f"[ALI] {rel}: {url} (matches {match})")
+            print(f"[PATRICK] {rel}: {url} (matches {match})")
         return 1
 
-    print("[ALI] Link verification passed. No forbidden external targets found.")
+    print("[PATRICK] Link verification passed. No forbidden external targets found.")
     return 0
 
 

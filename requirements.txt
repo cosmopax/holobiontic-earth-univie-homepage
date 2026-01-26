@@ -1,0 +1,8 @@
+beautifulsoup4
+tenacity
+bibtexparser
+pypdf
+jinja2
+markdown
+requests
+playwright

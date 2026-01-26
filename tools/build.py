@@ -1,188 +1,110 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 import csv
 import html
 import json
 import os
 import re
 import shutil
-import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Any
+from datetime import datetime, timezone
 
-# Robust Path Detection
-SCRIPT_DIR = Path(__file__).resolve().parent
-if (SCRIPT_DIR / "content").exists():
-    BASE_DIR = SCRIPT_DIR
-elif (SCRIPT_DIR.parent / "content").exists():
-    BASE_DIR = SCRIPT_DIR.parent
-else:
-    # Fallback to current working directory if content exists there
-    if (Path.cwd() / "content").exists():
-        BASE_DIR = Path.cwd()
-    else:
-        # Final fallback to parent of tools
-        BASE_DIR = SCRIPT_DIR.parent
-
+BASE_DIR = Path(__file__).resolve().parents[1]
 CONTENT_DIR = BASE_DIR / "content"
 SITE_DIR = BASE_DIR / "site"
-ASSETS_DIR = SITE_DIR / "assets"
-CSS_DIR = ASSETS_DIR / "css"
-JS_DIR = ASSETS_DIR / "js"
-IMG_DIR = ASSETS_DIR / "img"
-BLOG_DIR = CONTENT_DIR / "blog"
 MEDIA_DIR = CONTENT_DIR / "media"
+ASSETS_DIR = SITE_DIR / "assets" / "img"
 BLOCKS_DIR = CONTENT_DIR / "blocks"
 DIGESTS_DIR = CONTENT_DIR / "digests"
-
-SITE_JSON = CONTENT_DIR / "site.json"
 CONTROL_CSV = CONTENT_DIR / "control.csv"
-LINKS_CSV = CONTENT_DIR / "links.csv"
-POSTS_CSV = BLOG_DIR / "posts.csv"
 
-# Ensure directories exist
-CONTENT_DIR.mkdir(parents=True, exist_ok=True)
-BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
-BLOG_DIR.mkdir(parents=True, exist_ok=True)
-MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-
-PLACEHOLDER_IMAGES = {
-    "placeholder-hero.svg": "Warm abstract hero placeholder",
-    "placeholder-studio.svg": "Studio placeholder",
-    "placeholder-lab.svg": "Lab placeholder",
-    "placeholder-portrait.svg": "Portrait placeholder",
-    "placeholder-grid.svg": "Project grid placeholder",
-}
-
-NAV_SLUGS = ["", "about", "research", "team", "publications", "projects", "digest", "blog", "contact"]
+INTRO_KEY = "he_intro_seen"
+THEME_KEY = "he_theme"
 
 
 def _escape(text: str) -> str:
     return html.escape(text or "", quote=True)
 
 
-def _slugify(text: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9\s-]", "", text or "")
-    cleaned = re.sub(r"\s+", "-", cleaned.strip())
-    return cleaned.lower() or "post"
+def _normalize_slug(raw: str) -> str:
+    slug = (raw or "").strip()
+    if slug in {"", "/", "index", "/index/"}:
+        return "/"
+    if not slug.startswith("/"):
+        slug = f"/{slug}"
+    if not slug.endswith("/"):
+        slug = f"{slug}/"
+    return slug
 
 
-def _split_paragraphs(text: str) -> list[str]:
-    normalized = (text or "").replace("\n", "\n").strip()
-    if not normalized:
-        return []
-    chunks = re.split(r"\n\s*\n", normalized)
-    return [chunk.strip() for chunk in chunks if chunk.strip()]
-
-
-def _render_paragraphs(text: str) -> str:
-    return "\n".join(f"<p>{_escape(p)}</p>" for p in _split_paragraphs(text))
-
-
-def _render_emphasis(text: str) -> str:
-    escaped = _escape(text or "")
-    if not escaped:
+def _slug_dir(slug: str) -> str:
+    normalized = _normalize_slug(slug)
+    if normalized == "/":
         return ""
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
-    escaped = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", escaped)
-    return escaped
+    return normalized.strip("/")
+
+
+def _rel_link(current_slug: str, target_slug: str) -> str:
+    current_dir = _slug_dir(current_slug) or "."
+    target_dir = _slug_dir(target_slug) or "."
+    rel = os.path.relpath(target_dir, start=current_dir)
+    if rel == ".":
+        return "./"
+    return rel.rstrip("/") + "/"
+
+
+def _resolve_internal_url(raw_url: str, current_slug: str) -> str:
+    if not raw_url:
+        return ""
+    if raw_url.startswith("http") or raw_url.startswith("mailto:") or raw_url.startswith("#"):
+        return raw_url
+    target = raw_url
+    if not raw_url.startswith("/"):
+        target = f"/{raw_url.strip('/')}/"
+    return _rel_link(current_slug, target)
 
 
 def _render_inline_markdown(text: str) -> str:
-    raw = text or ""
-    # Inline Code
-    raw = re.sub(r"`([^`]+)`", r"<code>\1</code>", raw)
-    
     pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     parts: list[str] = []
     last = 0
-    for match in pattern.finditer(raw):
-        parts.append(_render_emphasis(raw[last:match.start()]))
-        label = _render_emphasis(match.group(1))
+    for match in pattern.finditer(text or ""):
+        parts.append(_escape((text or "")[last:match.start()]))
+        label = _escape(match.group(1))
         href = _escape(match.group(2))
         parts.append(f"<a href=\"{href}\">{label}</a>")
         last = match.end()
-    parts.append(_render_emphasis(raw[last:]))
+    parts.append(_escape((text or "")[last:]))
     return "".join(parts)
 
 
 def _render_markdown(text: str) -> str:
-    lines = (text or "").replace("\r\n", "\n").splitlines()
-    rendered = []
-    current_block = []
-    mode = None # list, code, quote, None
-    
-    def flush():
-        nonlocal mode, current_block
-        if not current_block: return
-        
-        if mode == "code":
-            code_text = _escape("\n".join(current_block))
-            rendered.append(f"<pre><code>{code_text}</code></pre>")
-        elif mode == "list":
-            items = "".join(f"<li>{_render_inline_markdown(li)}</li>" for li in current_block)
-            rendered.append(f"<ul>{items}</ul>")
-        elif mode == "quote":
-            # Join with single newline for blockquote content to preserve paragraphs
-            quote_content = _render_markdown("\n\n".join(current_block))
-            rendered.append(f"<blockquote>{quote_content}</blockquote>")
-        else:
-            block_text = " ".join(current_block)
-            heading_match = re.match(r"^(#{1,6})\s+(.*)$", block_text)
-            if heading_match:
-                level = len(heading_match.group(1))
-                tag = f"h{min(level+1, 6)}"
-                rendered.append(f"<{tag}>{_render_inline_markdown(heading_match.group(2))}</{tag}>")
-            elif re.match(r"^---+$", block_text):
-                rendered.append("<hr />")
-            else:
-                rendered.append(f"<p>{_render_inline_markdown(block_text)}</p>")
-        
-        current_block = []
-        mode = None
-
-    for line in lines:
-        stripped = line.strip()
-        
-        # Code Block Toggle
-        if stripped.startswith("```"):
-            if mode == "code":
-                flush()
-            else:
-                flush()
-                mode = "code"
+    cleaned = (text or "").replace("\r\n", "\n").strip()
+    if not cleaned:
+        return ""
+    blocks = re.split(r"\n\s*\n", cleaned)
+    rendered: list[str] = []
+    for block in blocks:
+        lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+        if not lines:
             continue
-            
-        if mode == "code":
-            current_block.append(line)
+        if all(line.lstrip().startswith(("-", "*")) for line in lines):
+            items = [
+                f"<li>{_render_inline_markdown(line.lstrip()[1:].strip())}</li>"
+                for line in lines
+            ]
+            rendered.append("<ul>" + "".join(items) + "</ul>")
             continue
-            
-        if not stripped:
-            flush()
+        heading_match = re.match(r"^(#{1,3})\s+(.*)$", lines[0])
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading = _render_inline_markdown(heading_match.group(2))
+            tag = "h2" if level == 1 else "h3" if level == 2 else "h4"
+            rendered.append(f"<{tag}>{heading}</{tag}>")
+            rest = [line for line in lines[1:] if line.strip()]
+            if rest:
+                rendered.append(f"<p>{_render_inline_markdown(' '.join(rest))}</p>")
             continue
-            
-        # List detection
-        if stripped.startswith(("- ", "* ")):
-            if mode != "list": flush()
-            mode = "list"
-            current_block.append(stripped[2:])
-            continue
-            
-        # Quote detection
-        if stripped.startswith(">"):
-            if mode != "quote": flush()
-            mode = "quote"
-            current_block.append(stripped[1:].strip())
-            continue
-            
-        if mode in ("list", "quote"):
-            flush()
-            
-        current_block.append(stripped)
-        
-    flush()
+        rendered.append(f"<p>{_render_inline_markdown(' '.join(lines))}</p>")
     return "\n".join(rendered)
 
 
@@ -198,7 +120,7 @@ def _resolve_block_path(source_md: str) -> Path | None:
         candidate = BLOCKS_DIR / source
     resolved = candidate.resolve()
     if not resolved.is_relative_to(CONTENT_DIR):
-        raise SystemExit(f"Block path outside content directory: {source_md}")
+        raise ValueError(f"Block path outside content directory: {source_md}")
     return resolved
 
 
@@ -207,156 +129,100 @@ def _read_block(source_md: str) -> str:
     if not path:
         return ""
     if not path.exists():
-        raise SystemExit(f"Missing block file: {path}")
+        raise ValueError(f"Missing block file: {path}")
     return path.read_text(encoding="utf-8")
 
 
-def _read_site_config() -> dict[str, Any]:
-    if SITE_JSON.exists():
-        config = json.loads(SITE_JSON.read_text(encoding="utf-8"))
-    else:
-        config = {}
-    
-    # Standard Defaults
-    defaults = {
-        "site_name": "Artificial Life Institute",
-        "site_tagline": "University of Vienna",
-        "meta_description": "Academic research and projects",
-        "contact_blurb": "We welcome collaborations and inquiries.",
-        "domain": "",
-        "newsletter_mode": "local",
-        "newsletter_provider_url": "",
-        "layout_variant": "standard",
-        "footer_note": "Department of Evolutionary Biology",
-        "address": "Djerassiplatz 1, 1030 Vienna",
-        "show_digest_home": "false",
-        "logo_text": "ALI",
-        "nav_cta_text": "Get in touch",
-        "nav_cta_target": "contact",
-    }
-    
-    for key, val in defaults.items():
-        if key not in config:
-            config[key] = val
-            
-    return config
-
-
-def _normalize_slug(raw_slug: str) -> str:
-    slug = (raw_slug or "").strip()
-    if slug in {"", "/", "index", "home"}:
-        return ""
-    return slug.strip("/")
-
-
-def _page_output_path(slug: str) -> Path:
-    if slug == "":
-        return Path("index.html")
-    return Path(slug) / "index.html"
-
-
-def _page_link_path(slug: str) -> Path:
-    if slug == "":
-        return Path(".")
-    return Path(slug)
-
-
-def _rel_link(current_path: Path, target_path: Path) -> str:
-    current_dir = current_path.parent.as_posix()
-    target = target_path.as_posix()
+def _rel_asset_path(current_slug: str, asset_path: str) -> str:
+    current_dir = _slug_dir(current_slug) or "."
+    target = asset_path.lstrip("/")
     rel = os.path.relpath(target, start=current_dir)
     return rel
 
 
-def _rel_dir_link(current_path: Path, target_dir: Path) -> str:
-    current_dir = current_path.parent.as_posix() or "."
-    target_dir_str = target_dir.as_posix() or "."
-    rel = os.path.relpath(target_dir_str, start=current_dir)
-    if rel == ".":
-        return "./"
-    return rel.rstrip("/") + "/"
+def _rel_root_path(current_slug: str, target_path: str) -> str:
+    return _rel_asset_path(current_slug, target_path)
 
 
-def _rel_page_link(current_path: Path, slug: str) -> str:
-    return _rel_dir_link(current_path, _page_link_path(slug))
-
-
-def _resolve_image_src(raw_image: str, current_path: Path) -> str:
-    image = (raw_image or "").strip()
+def _resolve_image_ref(image_ref: str, current_slug: str) -> str:
+    image = (image_ref or "").strip()
     if not image:
-        image = "placeholder-hero.svg"
-    if image.startswith(("http://", "https://")):
-        return image
+        return ""
     if image.startswith("assets/"):
-        return _rel_link(current_path, Path(image))
-    return _rel_link(current_path, Path("assets/img") / image)
+        return _rel_asset_path(current_slug, image)
+    return _rel_asset_path(current_slug, f"assets/img/{image}")
 
 
-def _read_control() -> dict[str, dict[str, object]]:
+def read_site_config():
+    path = CONTENT_DIR / "site.json"
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def copy_assets():
+    if not MEDIA_DIR.exists():
+        return
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    for item in MEDIA_DIR.iterdir():
+        if item.is_file():
+            shutil.copy2(item, ASSETS_DIR / item.name)
+
+
+def read_control():
     if not CONTROL_CSV.exists():
-        raise SystemExit(f"Missing control file: {CONTROL_CSV}")
+        raise ValueError(f"Missing control file: {CONTROL_CSV}")
     pages: dict[str, dict[str, object]] = {}
-    with CONTROL_CSV.open(newline="", encoding="utf-8") as handle:
+    with CONTROL_CSV.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
-        for row in reader:
-            data = {}
-            for key, value in row.items():
-                if isinstance(value, list):
-                    value = " ".join(value)
-                data[key] = (value or "").strip()
-            
-            status = (data.get("status") or "").lower()
+        for raw in reader:
+            row = {k: (v or "").strip() for k, v in raw.items()}
+            status = (row.get("status") or "").lower()
             if status in {"draft", "hidden", "archived", "inactive"}:
                 continue
-            slug = _normalize_slug(data.get("page_slug", ""))
-            order = int(data.get("order") or 0)
-            entry = pages.setdefault(
-                slug,
-                {
-                    "title": slug.title() or "Home",
-                    "sections": [],
-                    "order": 0,
-                },
-            )
-            kind = (data.get("kind") or "section").lower()
+            slug = _normalize_slug(row.get("page_slug", ""))
+            order = int(row.get("order") or 0)
+            page = pages.setdefault(slug, {"title": slug.strip("/").title() or "Home", "sections": [], "order": 0})
+            kind = (row.get("kind") or "section").lower()
             if kind in {"page", "meta"}:
-                if data.get("title"):
-                    entry["title"] = data["title"]
-                entry["order"] = order
+                if row.get("title"):
+                    page["title"] = row["title"]
+                page["order"] = order
                 continue
-            section_id = data.get("section") or data.get("id") or ""
-            entry["sections"].append(
-                {
-                    **data,
-                    "order": order,
-                    "page_slug": slug,
-                    "section_id": section_id,
-                    "kind": kind,
-                }
-            )
+            section_id = row.get("section") or row.get("id") or ""
+            page["sections"].append({
+                "id": row.get("id", ""),
+                "section_id": section_id,
+                "title": row.get("title", ""),
+                "source_md": row.get("source_md", ""),
+                "hero_image": row.get("hero_image", ""),
+                "cta_text": row.get("cta_text", ""),
+                "cta_url": row.get("cta_url", ""),
+                "kind": kind,
+                "order": order,
+            })
     for page in pages.values():
-        page["sections"] = sorted(page["sections"], key=lambda item: item["order"])
+        page["sections"].sort(key=lambda s: s["order"])
     return pages
 
 
-def _read_links() -> list[dict[str, str]]:
-    if not LINKS_CSV.exists():
-        return []
-    items: list[dict[str, str]] = []
-    with LINKS_CSV.open(newline="", encoding="utf-8") as handle:
+def read_links():
+    path = CONTENT_DIR / "links.csv"
+    links = []
+    with path.open("r", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
-        for row in reader:
-            data = {key: (value or "").strip() for key, value in row.items()}
-            if not data.get("label"):
-                continue
-            items.append(data)
-    items.sort(key=lambda item: int(item.get("order") or 0))
-    return items
+        for raw in reader:
+            row = {k: (v or "").strip() for k, v in raw.items()}
+            links.append({
+                "label": row["label"],
+                "url": row["url"],
+                "icon": row["icon"],
+                "order": int(row["order"] or 0),
+            })
+    links.sort(key=lambda l: l["order"])
+    return links
 
 
-def _read_digests() -> list[dict[str, str]]:
-    if not DIGESTS_DIR.exists():
-        return []
+def read_digests():
     index_path = DIGESTS_DIR / "index.json"
     if not index_path.exists():
         return []
@@ -371,2498 +237,1283 @@ def _read_digests() -> list[dict[str, str]]:
         source_md = str(entry.get("source_md", "")).strip()
         if not (date and slug and source_md):
             continue
-        items.append(
-            {
-                "date": date,
-                "title": title or f"Digest {date}",
-                "slug": slug,
-                "source_md": source_md,
-            }
-        )
+        items.append({
+            "date": date,
+            "title": title or f"Digest {date}",
+            "slug": slug,
+            "source_md": source_md,
+        })
     return items
 
 
-def _parse_blog_post(path: Path) -> dict[str, str]:
+def parse_frontmatter(raw: str, filepath: Path) -> tuple[dict[str, str], str]:
+    """
+    Parse YAML-style frontmatter from markdown content.
+    
+    Returns:
+        tuple: (metadata dict, body content)
+    
+    Raises:
+        ValueError: If frontmatter is malformed
+    """
+    if not raw.startswith("---"):
+        return {}, raw
+    
+    parts = re.split(r"^---\s*$", raw, maxsplit=2, flags=re.MULTILINE)
+    
+    if len(parts) < 3:
+        raise ValueError(
+            f"Malformed frontmatter in {filepath.name}: "
+            f"Missing closing '---' separator. "
+            f"Frontmatter must be enclosed between two '---' lines."
+        )
+    
+    frontmatter_block = parts[1].strip()
+    body = parts[2].strip()
+    
+    if not frontmatter_block:
+        raise ValueError(
+            f"Empty frontmatter in {filepath.name}: "
+            f"Frontmatter block exists but contains no data."
+        )
+    
+    metadata = {}
+    for line_num, line in enumerate(frontmatter_block.splitlines(), start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        
+        if ":" not in line:
+            raise ValueError(
+                f"Invalid frontmatter syntax in {filepath.name} at line {line_num}: "
+                f"Expected 'key: value' format, got '{line}'"
+            )
+        
+        key, value = line.split(":", 1)
+        k = key.strip().lower()
+        v = value.strip().strip('"').strip("'")
+        
+        if not k:
+            raise ValueError(
+                f"Empty key in frontmatter in {filepath.name} at line {line_num}"
+            )
+        
+        metadata[k] = v
+    
+    return metadata, body
+
+
+def parse_blog_post(path: Path):
     raw = path.read_text(encoding="utf-8")
     title = ""
-    date = ""
+    date_value = ""
     body = ""
-    slug = _slugify(path.stem)
+    slug = path.stem
+    match = re.match(r"\d{4}-\d{2}-\d{2}-(.+)", slug)
+    if match:
+        slug = match.group(1)
 
-    # Check for YAML frontmatter
-    if raw.startswith("---"):
-        parts = re.split(r"^---\s*$", raw, maxsplit=2, flags=re.MULTILINE)
-        if len(parts) >= 3:
-            frontmatter = parts[1]
-            body = parts[2].strip()
-            for line in frontmatter.splitlines():
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    k, v = key.strip().lower(), value.strip()
-                    if k == "title":
-                        title = v.strip('"')
-                    elif k == "date":
-                        date = v.strip('"')
-                    elif k == "slug":
-                        slug = v.strip('"')
-            if not date:
-                date = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
-            return {"title": title or path.stem, "date": date, "body": body, "slug": slug}
+    # Try YAML frontmatter first
+    try:
+        metadata, body = parse_frontmatter(raw, path)
+        if metadata:
+            title = metadata.get("title", "")
+            date_value = metadata.get("date", "")
+            slug = metadata.get("slug", slug)
+            
+            if not date_value:
+                date_value = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+            
+            return {
+                "title": title or path.stem,
+                "date": date_value,
+                "body": body,
+                "slug": slug,
+                "filename": path.name,
+            }
+    except ValueError as e:
+        print(f"[WARNING] Frontmatter parsing failed for {path.name}: {e}")
+        print(f"[WARNING] Falling back to legacy format for {path.name}")
 
-    # Legacy format
-    body_lines: list[str] = []
-    in_body = False
-    for line in raw.splitlines():
-        if not in_body and line.strip() == "":
-            in_body = True
-            continue
-        if not in_body:
-            if line.startswith("Title:"):
-                title = line.split(":", 1)[1].strip()
-            elif line.startswith("Date:"):
-                date = line.split(":", 1)[1].strip()
-            elif line.startswith("Body:"):
-                in_body = True
-        else:
-            body_lines.append(line)
+    # Legacy format fallback
+    body_lines = []
+    mode = None
+    lines = raw.splitlines()
+    for line in lines:
+        stripped = line.rstrip()
+        if stripped.startswith("Title:"):
+            title = stripped.replace("Title:", "", 1).strip()
+            mode = None
+        elif stripped.startswith("Date:"):
+            date_value = stripped.replace("Date:", "", 1).strip()
+            mode = None
+        elif stripped.startswith("Body:"):
+            mode = "body"
+        elif mode == "body":
+            body_lines.append(stripped)
+    
+    body = "\n".join(body_lines).strip()
     if not title:
         title = path.stem
-    if not date:
-        date = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
-    body = "\n".join(body_lines).strip()
-    return {"title": title, "date": date, "body": body, "slug": slug}
+    if not date_value:
+        date_value = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+
+    return {
+        "title": title,
+        "date": date_value,
+        "body": body,
+        "slug": slug,
+        "filename": path.name,
+    }
 
 
-def _read_blog_posts() -> list[dict[str, str]]:
-    if not BLOG_DIR.exists():
-        return []
-    
+def read_blog_posts():
     posts = []
-    seen_slugs = set()
-
-    # 1. Read from posts.csv
-    if POSTS_CSV.exists():
-        with POSTS_CSV.open(newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                data = {key: (value or "").strip() for key, value in row.items()}
-                if not data.get("source_md"):
-                    continue
-                
-                source_path = BLOG_DIR / data["source_md"]
-                if not source_path.exists():
-                    print(f"Warning: Blog post file not found: {source_path}")
-                    continue
-                
-                # Parse the file content to get the body, but prefer CSV metadata if available
-                file_data = _parse_blog_post(source_path)
-                
-                title = data.get("title") or file_data["title"]
-                date = data.get("date") or file_data["date"]
-                slug = data.get("slug") or file_data["slug"]
-                
-                posts.append({
-                    "title": title,
-                    "date": date,
-                    "slug": slug,
-                    "body": file_data["body"]
-                })
-                seen_slugs.add(slug)
-
-    # 2. Scan for legacy .txt files
-    for path in sorted(BLOG_DIR.glob("*.txt")):
-        file_data = _parse_blog_post(path)
-        if file_data["slug"] not in seen_slugs:
-            posts.append(file_data)
-            seen_slugs.add(file_data["slug"])
-
-    posts.sort(key=lambda item: item.get("date", ""), reverse=True)
+    blog_dir = CONTENT_DIR / "blog"
+    if not blog_dir.exists():
+        return posts
+    for path in sorted(blog_dir.glob("*.txt")):
+        posts.append(parse_blog_post(path))
+    posts.sort(key=lambda p: p["date"], reverse=True)
     return posts
 
 
-def _resolve_cta_url(raw_url: str, pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    if not raw_url:
-        return ""
-    if raw_url.startswith("http") or raw_url.startswith("mailto:") or raw_url.startswith("#"):
-        return raw_url
-    slug = _normalize_slug(raw_url)
-    if slug in pages:
-        return _rel_page_link(current_path, slug)
-    return raw_url
+def write_file(path: Path, content: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
-def _render_newsletter_form(site: dict[str, str], current_path: Path) -> str:
-    mode = (site.get("newsletter_mode") or "local").strip()
-    provider_url = (site.get("newsletter_provider_url") or "").strip()
-    if mode == "local" or not provider_url:
-        endpoint = _rel_link(current_path, Path("subscribe.php"))
-    else:
-        endpoint = provider_url
+def build_nav(pages, current_slug: str):
+    entries = []
+    for slug, page in pages.items():
+        if slug in ("/privacy/", "/imprint/", "/legal/"):
+            continue
+        depth = len(_slug_dir(slug).split("/")) if _slug_dir(slug) else 0
+        if depth > 1:
+            continue
+        entries.append({"slug": slug, "title": page["title"], "order": page.get("order", 0)})
+    entries.sort(key=lambda e: e["order"])
+    return "\n".join(
+        f"<a href=\"{_rel_link(current_slug, slug)}\">{title}</a>"
+        for slug, title in ((e["slug"], e["title"]) for e in entries)
+    )
+
+
+def render_head(site, page_title, current_slug="/"):
+    title = f"{page_title} | {site['site_title']}"
+    meta_description = site.get("meta_description", "")
+    css_path = _rel_asset_path(current_slug, "assets/css/holobiontic.css")
     return f"""
-<div class="newsletter" id="newsletter">
-  <div>
-    <h3>Newsletter</h3>
-    <p>Subscribe for institute updates, events, and research highlights.</p>
-  </div>
-  <form class="newsletter-form" data-newsletter-form action="{_escape(endpoint)}" method="post">
-    <label class="sr-only" for="newsletter-email">Email</label>
-    <input id="newsletter-email" name="email" type="email" placeholder="you@example.org" required />
-    <div class="sr-only" aria-hidden="true">
-      <label for="newsletter-company">Company</label>
-      <input id="newsletter-company" name="company" type="text" tabindex="-1" autocomplete="off" />
-    </div>
-    <button class="button" type="submit">Subscribe</button>
-    <p class="form-status" aria-live="polite"></p>
-  </form>
-</div>
-"""
-
-
-def _render_links(links: list[dict[str, str]]) -> str:
-    if not links:
-        return ""
-    items = []
-    for link in links:
-        label = _escape(link.get("label", ""))
-        url = _escape(link.get("url", ""))
-        kind = (link.get("kind") or "").strip()
-        class_name = "tag" if kind == "placeholder" else "tag primary"
-        items.append(f"<a class=\"{class_name}\" href=\"{url}\" rel=\"noopener\">{label}</a>")
-    return "<div class=\"tag-list\">" + "".join(items) + "</div>"
-
-
-def _render_head(title: str, css_href: str, description: str, extra_css: str = "", site: dict = None, page_url: str = "", og_image: str = "") -> str:
-    """Render HTML head with comprehensive SEO metadata"""
-    extra_css = extra_css.strip()
-    if extra_css:
-        extra_css = "\n  " + extra_css
-    
-    # Get site info for metadata
-    site = site or {}
-    site_name = site.get("site_name", "Academic Portfolio")
-    
-    # Construct full page title
-    full_title = f"{title} | {site_name}" if title != site_name else title
-    
-    # OpenGraph & Twitter metadata
-    og_meta = ""
-    if page_url:
-        og_meta = f"""
-  <!-- OpenGraph / Social Media -->
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="{_escape(page_url)}" />
-  <meta property="og:title" content="{_escape(full_title)}" />
-  <meta property="og:description" content="{_escape(description)}" />
-  <meta property="og:site_name" content="{_escape(site_name)}" />"""
-    
-    if og_image:
-        og_meta += f"""
-  <meta property="og:image" content="{_escape(og_image)}" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="{_escape(og_image)}" />"""
-    else:
-        og_meta += """
-  <meta name="twitter:card" content="summary" />"""
-    
-    if page_url:
-        og_meta += f"""
-  <meta name="twitter:title" content="{_escape(full_title)}" />
-  <meta name="twitter:description" content="{_escape(description)}" />"""
-    
-    return f"""
+<!doctype html>
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{_escape(full_title)}</title>
-  <meta name="description" content="{_escape(description)}" />
-  <meta name="robots" content="index, follow" />
-  <meta name="author" content="{_escape(site_name)}" />{og_meta}
-  <link rel="canonical" href="{_escape(page_url)}" />
-  <link rel="stylesheet" href="{_escape(css_href)}" />{extra_css}
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+  <meta name="description" content="{meta_description}" />
+  <title>{title}</title>
+  <link rel="stylesheet" href="{css_path}">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=Outfit:wght@200;300;400;500&display=swap');
+
+    :root {{
+      --bg-dark: #050505;
+      --bg-light: #f4f1ee;
+      --text-light: #ececec;
+      --text-dark: #1b1b1b;
+      --accent: {site['accent']};
+      --muted: #888888;
+      --card: rgba(20, 20, 24, 0.65);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --glass: rgba(20, 20, 24, 0.4);
+      --glass-light: rgba(255, 255, 255, 0.6);
+      --shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+      --radius: 20px;
+      --font-body: "Outfit", sans-serif;
+      --font-display: "Cormorant Garamond", serif;
+      --ease: cubic-bezier(0.2, 0.0, 0.2, 1);
+    }}
+
+    [data-theme="light"] {{
+      --bg-dark: #f4f1ee;
+      --text-light: #1b1b1b;
+      --card: rgba(255, 255, 255, 0.7);
+      --card-border: rgba(0, 0, 0, 0.06);
+      --glass: rgba(255, 255, 255, 0.45);
+      --muted: #666;
+      --shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.08);
+      --text-dark: #ececec; 
+    }}
+
+    * {{ box-sizing: border-box; }}
+    
+    body {{
+      margin: 0;
+      font-family: var(--font-body);
+      background: radial-gradient(circle at 50% 0%, #1a1a20 0%, #050505 70%);
+      color: var(--text-light);
+      min-height: 100vh;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }}
+
+    [data-theme="light"] body {{
+      background: radial-gradient(circle at 50% 0%, #ffffff 0%, #ebe6e1 100%);
+      color: var(--text-light);
+    }}
+
+    a {{ color: inherit; text-decoration: none; transition: color 0.2s; }}
+    a:hover {{ color: var(--accent); }}
+
+    .frame {{
+      min-height: 100vh;
+      padding: 100px 6vw 80px;
+      position: relative;
+    }}
+
+    .noise {{
+      position: fixed;
+      inset: 0;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="200" height="200" filter="url(%23n)" opacity="0.04"/></svg>');
+      pointer-events: none;
+      mix-blend-mode: overlay;
+      z-index: 0;
+    }}
+
+    header {{
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(5, 5, 5, 0.75);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      transition: background 0.3s, border-color 0.3s;
+    }}
+
+    [data-theme="light"] header {{
+      background: rgba(244, 241, 238, 0.85);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }}
+
+    .nav {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 6vw;
+    }}
+
+    .nav-title {{
+      font-family: var(--font-display);
+      font-size: 1.3rem;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }}
+
+    .logo-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-group:hover .nav-links-wrapper {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .nav-links-wrapper {
+      position: absolute;
+      top: 100%;
+      left: -12px;
+      padding-top: 20px;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-8px);
+      transition: all 0.2s var(--ease);
+      pointer-events: none;
+    }
+    .nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--bg-dark);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 16px 20px;
+      border-radius: 12px;
+      min-width: 220px;
+      box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    }
+
+    .toggle {{
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: transparent;
+      color: inherit;
+      padding: 8px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.2s;
+    }}
+
+    .toggle:hover {{
+      background: rgba(255, 255, 255, 0.1);
+    }}
+
+    .hero {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 60px;
+      padding: 60px 0 40px;
+      position: relative;
+      align-items: center;
+    }}
+
+    .hero h1 {{
+      font-family: var(--font-display);
+      font-size: clamp(3rem, 6vw, 5.5rem);
+      margin: 0 0 24px;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }}
+
+    .hero p {{ 
+      font-size: 1.15rem; 
+      line-height: 1.7; 
+      color: var(--muted);
+      max-width: 540px;
+    }}
+
+    .accent {{ color: var(--accent); }}
+
+    .cta {{
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 32px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.85rem;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      font-weight: 500;
+      box-shadow: 0 12px 24px rgba(107, 15, 26, 0.25);
+      transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+    }}
+
+    .cta:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 16px 32px rgba(107, 15, 26, 0.35);
+    }}
+
+    section {{
+      margin-top: 60px;
+      padding: 40px;
+      border-radius: var(--radius);
+      background: var(--card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow);
+    }}
+
+    section h2 {{
+      font-family: var(--font-display);
+      margin-top: 0;
+      font-size: 2rem;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+    }}
+
+    .grid, .tile-grid, .profile-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 32px;
+    }}
+
+    .card, .tile-card {{
+      padding: 24px;
+      border-radius: var(--radius);
+      background: var(--card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+    }}
+
+    .card:hover, .tile-card:hover {{
+      transform: translateY(-6px);
+      box-shadow: 0 30px 60px -10px rgba(0,0,0,0.4); 
+      border-color: rgba(255,255,255,0.2);
+    }}
+    
+    [data-theme="light"] .card:hover {{
+       box-shadow: 0 30px 60px -10px rgba(0,0,0,0.1); 
+       border-color: rgba(0,0,0,0.15);
+    }}
+
+    .tile-media img {{
+      width: 100%;
+      border-radius: calc(var(--radius) - 4px);
+      border: 1px solid var(--card-border);
+      display: block;
+      margin-bottom: 16px;
+    }}
+
+    .tile-card h3 {{
+      margin: 0 0 8px;
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+    }}
+
+    .tile-card p {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }}
+    .profile-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+    }}
+    .profile-card h3 {{
+      margin-top: 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }}
+    .newsletter-form,
+    .contact-form {{
+      display: grid;
+      gap: 12px;
+    }}
+    .newsletter-form input,
+    .contact-form input,
+    .contact-form textarea {{
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: transparent;
+      color: inherit;
+      font-family: var(--font-body);
+    }}
+    .newsletter-form label,
+    .contact-form label {{
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }}
+    [data-theme=\"light\"] .newsletter-form input,
+    [data-theme=\"light\"] .contact-form input,
+    [data-theme=\"light\"] .contact-form textarea {{
+      border: 1px solid rgba(0, 0, 0, 0.2);
+    }}
+    .form-status {{
+      font-size: 0.9rem;
+      color: var(--muted);
+    }}
+    .sr-only {{
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }}
+    .footer {{
+      margin-top: 60px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.9rem;
+      color: var(--muted);
+    }}
+    .intro-overlay {{
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, rgba(19, 19, 24, 0.96) 0%, rgba(6, 6, 8, 0.98) 60%);
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.6s ease;
+    }}
+    .intro-overlay.active {{ opacity: 1; pointer-events: auto; }}
+    .intro-card {{
+      text-align: center;
+      padding: 48px;
+      border-radius: 26px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(10, 10, 12, 0.9);
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }}
+    .intro-card::before {{
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background: conic-gradient(from 120deg, rgba(107, 15, 26, 0.6), transparent, rgba(107, 15, 26, 0.6));
+      animation: spin 6s linear infinite;
+      opacity: 0.7;
+    }}
+    .intro-card > * {{ position: relative; z-index: 1; }}
+    .intro-actions {{
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }}
+    .intro-skip {{
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 10px 18px;
+      border-radius: 999px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 0.8rem;
+    }}
+    @keyframes spin {{
+      from {{ transform: rotate(0deg); }}
+      to {{ transform: rotate(360deg); }}
+    }}
+    .fade-in {{
+      animation: fadeInUp 0.8s ease both;
+    }}
+    @keyframes fadeInUp {{
+      from {{ transform: translateY(16px); opacity: 0; }}
+      to {{ transform: translateY(0); opacity: 1; }}
+    }}
+    @media (max-width: 720px) {{
+      .nav {{ flex-direction: column; align-items: flex-start; }}
+      .nav-links {{ font-size: 0.8rem; }}
+      section {{ padding: 20px; }}
+      .intro-card {{ padding: 32px; }}
+    }}
+  </style>
 </head>
 """
 
 
-def _render_header(current_slug: str, pages: dict[str, dict[str, object]], current_path: Path, site: dict[str, object]) -> str:
-    nav_links = []
-    for slug in NAV_SLUGS:
-        if slug not in pages:
-            continue
-        title = pages[slug]["title"]
-        href = _rel_page_link(current_path, slug)
-        active = "active" if slug == current_slug else ""
-        nav_links.append(f"<a class=\"{active}\" href=\"{_escape(href)}\">{_escape(title)}</a>")
-    
-    # Dynamic CTA
-    cta_target = str(site.get("nav_cta_target") or "contact")
-    cta_text = str(site.get("nav_cta_text") or "Get in touch")
-    cta_href = _rel_page_link(current_path, cta_target) if cta_target in pages else "#"
-
-    # Dynamic Logo
-    logo_text = str(site.get("logo_text") or site.get("site_name") or "ALI")
-
-    # Burger Menu construction
-    burger_nav_items = []
-    for slug in NAV_SLUGS:
-        if slug not in pages: continue
-        t = pages[slug]["title"]
-        h = _rel_page_link(current_path, slug)
-        burger_nav_items.append(f'<a href="{_escape(h)}">{_escape(t)}</a>')
-    
-    # Add footer-like links to burger
-    burger_nav_items.append('<hr>')
-    burger_nav_items.append(f'<a href="{_escape(cta_href)}">{_escape(cta_text)}</a>')
-
+def render_footer(site):
+    year = datetime.now(timezone.utc).year
     return f"""
-<div class="construction-banner">
-  <span>🚧 <strong>Beta Protocol:</strong> This platform is evolving live. Content is provisional.</span>
-</div>
-<header class="site-header">
-  <div class="header-left">
-      <a class="logo" href="{_escape(_rel_page_link(current_path, ""))}">{_escape(logo_text)}</a>
-  </div>
-  <nav class="nav">{''.join(nav_links)}</nav>
-  <div class="header-right">
-      <a class="cta" href="{_escape(cta_href)}">{_escape(cta_text)}</a>
-      <button class="burger-toggle" aria-label="Toggle Navigation" aria-controls="burger-menu" aria-expanded="false" onclick="toggleBurgerMenu()">
-        <span></span><span></span><span></span>
-      </button>
-  </div>
-  <!-- Burger Overlay -->
-  <div class="burger-menu-overlay" id="burger-menu" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Site navigation" aria-describedby="burger-description">
-      <button class="burger-close" type="button" aria-label="Close navigation" onclick="toggleBurgerMenu()">&times;</button>
-      <p id="burger-description" class="sr-only">Site navigation menu. Press Escape to close.</p>
-      <nav class="burger-nav">
-          {''.join(burger_nav_items)}
-      </nav>
+<footer class=\"footer\">
+  <div>© {year} {site['site_name']} — {site.get('footer_text', site['tagline'])}</div>
+</footer>
+"""
+
+
+def render_header(site, nav_html):
+    return f"""
+<header>
+  <div class=\"nav\">
+    <div class=\"logo-group\">
+      <div class=\"nav-title\">{site['site_title']}</div>
+      <div class=\"nav-links-wrapper\">
+        <nav class=\"nav-links\">{nav_html}</nav>
+      </div>
+    </div>
+    <button class=\"toggle\" id=\"theme-toggle\">Light/Dark</button>
   </div>
 </header>
 """
 
 
-def _render_footer(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path, links: list[dict[str, str]]) -> str:
-    footer_links = []
-    for slug in ("privacy", "imprint"):
-        if slug in pages:
-            href = _rel_page_link(current_path, slug)
-            footer_links.append(f"<a href=\"{_escape(href)}\">{_escape(pages[slug]['title'])}</a>")
-    links_html = "".join(footer_links)
-    digital_html = _render_links(links)
-    address = _escape(site.get("address", ""))
-    note = _escape(site.get("footer_note", ""))
-    domain = _escape(site.get("domain", ""))
+def render_newsletter_form(current_slug: str):
+    action = _rel_root_path(current_slug, "subscribe.php")
     return f"""
-<footer class="site-footer">
-  <div class="footer-grid">
-    <div>
-      <p class="footer-title">Artificial Life Institute</p>
-      <p>{address}</p>
-      <p>{note}</p>
-      <p><a href="{domain}">{domain}</a></p>
-    </div>
-    <div>
-      <p class="footer-title">Digital presence</p>
-      {digital_html}
-    </div>
-    <div>
-      <p class="footer-title">Legal</p>
-      <div class="footer-links">{links_html}</div>
-    </div>
+<form class=\"newsletter-form\" data-newsletter-form action=\"{action}\" method=\"post\">
+  <label for=\"newsletter-email\">Email</label>
+  <input id=\"newsletter-email\" name=\"email\" type=\"email\" required placeholder=\"you@example.org\" />
+  <div class=\"sr-only\" aria-hidden=\"true\">
+    <label for=\"newsletter-company\">Company</label>
+    <input id=\"newsletter-company\" name=\"company\" type=\"text\" tabindex=\"-1\" autocomplete=\"off\" />
   </div>
-</footer>
+  <button class=\"cta\" type=\"submit\">Subscribe</button>
+  <p class=\"form-status\" aria-live=\"polite\"></p>
+</form>
 """
 
 
-def _render_section(
-    section: dict[str, str],
-    current_path: Path,
-    pages: dict[str, dict[str, object]],
-    digests: list[dict[str, str]],
-) -> str:
-    kind = (section.get("kind") or "section").lower()
-    if kind == "contact_form":
-        return _render_contact_form(section, current_path)
-    if kind == "digest_list":
-        return _render_digest_list(section, current_path, digests)
-    if kind == "project_grid_v2":
-        return _render_project_grid_v2(section, current_path, pages)
-    if kind == "team_grid":
-        return _render_team_grid(section, current_path)
-    if kind == "pub_list":
-        return _render_pub_list(section, current_path)
-    if kind == "research_grid":
-        return _render_research_grid(section, current_path)
-    heading = _escape(section.get("title", ""))
-    body = _render_markdown(_read_block(section.get("source_md", "")))
-    cta_text = _escape(section.get("cta_text", ""))
-    raw_cta_url = section.get("cta_url", "")
-    cta_url = _resolve_cta_url(raw_cta_url, pages, current_path)
-    cta = ""
-    if cta_text and cta_url:
-        cta = f"<a class=\"button ghost\" href=\"{_escape(cta_url)}\">{cta_text}</a>"
-    image_src = _resolve_image_src(section.get("hero_image", ""), current_path)
-    image = f"<figure class=\"image-frame\"><img src=\"{_escape(image_src)}\" alt=\"{heading} image\" /></figure>"
-    section_id = _escape(section.get("section_id", ""))
+def render_contact_form(current_slug: str):
+    action = _rel_root_path(current_slug, "contact.php")
     return f"""
-<section class="content-section" id="{section_id}">
-  <div class="content-grid">
-    <div>
-      <h2>{heading}</h2>
-      {body}
-      {cta}
-    </div>
-    {image}
+<form class=\"contact-form\" data-contact-form action=\"{action}\" method=\"post\">
+  <label for=\"contact-name\">Name</label>
+  <input id=\"contact-name\" name=\"name\" type=\"text\" required />
+  <label for=\"contact-email\">Email</label>
+  <input id=\"contact-email\" name=\"email\" type=\"email\" required />
+  <label for=\"contact-message\">Message</label>
+  <textarea id=\"contact-message\" name=\"message\" rows=\"5\" required></textarea>
+  <div class=\"sr-only\" aria-hidden=\"true\">
+    <label for=\"contact-company\">Company</label>
+    <input id=\"contact-company\" name=\"company\" type=\"text\" tabindex=\"-1\" autocomplete=\"off\" />
   </div>
-</section>
-"""
-
-def _render_project_grid_v2(section: dict[str, str], current_path: Path, pages: dict[str, dict[str, object]]) -> str:
-    tiles_path = CONTENT_DIR / "profile_tiles.csv"
-    projects_path = CONTENT_DIR / "projects.json"
-    projects: list[dict[str, Any]] = []
-    if tiles_path.exists():
-        def parse_list(raw: str) -> list[str]:
-            if not raw:
-                return []
-            return [item.strip() for item in raw.split(";") if item.strip()]
-
-        with tiles_path.open(newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                data = {key: (value or "").strip() for key, value in row.items()}
-                keywords = parse_list(data.get("keywords", ""))
-                deck = parse_list(data.get("deck", ""))
-                projects.append(
-                    {
-                        "id": data.get("id", ""),
-                        "title": data.get("title", ""),
-                        "description": data.get("description", ""),
-                        "keywords": keywords,
-                        "tier": data.get("tier", ""),
-                        "type": data.get("type", ""),
-                        "target": data.get("target", ""),
-                        "content_file": data.get("content_file", ""),
-                        "image": data.get("image", ""),
-                        "deck": deck,
-                    }
-                )
-    elif projects_path.exists():
-        projects = json.loads(projects_path.read_text(encoding="utf-8"))
-        if not isinstance(projects, list):
-            return "<p>Invalid projects.json format</p>"
-    else:
-        return "<p>Missing profile_tiles.csv</p>"
-    
-    upper_cards = []
-    lower_cards = []
-    overlays = []
-    overlay_cache: dict[str, str] = {}
-    image_cache: dict[str, str] = {}
-    tile_index = 0
-    
-    for proj in projects:
-        t = proj.get("title", "")
-        desc = proj.get("description", "")
-        img_raw = proj.get("image", "")
-        img_key = str(img_raw or "")
-        img = image_cache.get(img_key)
-        if img is None:
-            img = _resolve_image_src(img_raw, current_path)
-            image_cache[img_key] = img
-        p_type = str(proj.get("type") or "link").lower()
-        p_id = proj.get("id", "")
-        tier = str(proj.get("tier") or ("upper" if p_type == "overlay" else "lower")).lower()
-        deck = proj.get("deck") or []
-        if not isinstance(deck, list):
-            deck = []
-        deck_images = [str(item) for item in deck if item]
-        primary_image = img
-        alt_image = ""
-        if deck_images:
-            primary_image = _resolve_image_src(deck_images[0], current_path)
-            if len(deck_images) > 1:
-                alt_image = _resolve_image_src(deck_images[1], current_path)
-        keywords_raw = proj.get("keywords", "")
-        keywords_list: list[str] = []
-        if isinstance(keywords_raw, list):
-            keywords_list = [str(item) for item in keywords_raw if item]
-        elif keywords_raw:
-            keywords_list = [str(keywords_raw)]
-            
-        action_attr = ""
-        link_target = "#"
-        
-        if p_type == "overlay":
-            link_target = "#"
-            action_attr = f'data-type="overlay" data-overlay-id="{p_id}"'
-        else:
-            target = str(proj.get("target") or "#").strip()
-            if target in pages:
-                link_target = _rel_page_link(current_path, target)
-            else:
-                link_target = target
-            if link_target.startswith(("http://", "https://")):
-                action_attr = 'target="_blank" rel="noopener"'
-        
-        if p_type == "overlay":
-            # Pre-render overlay content
-            content_file = proj.get("content_file", "")
-            overlay_body = ""
-            if content_file:
-                cached = overlay_cache.get(content_file)
-                if cached is None:
-                    cached = _render_markdown(_read_block(content_file))
-                    overlay_cache[content_file] = cached
-                overlay_body = cached
-            
-            title_id = f"overlay-title-{p_id}"
-            body_id = f"overlay-body-{p_id}"
-            overlays.append(f"""
-<div class="project-overlay" id="overlay-{p_id}" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="{_escape(title_id)}" aria-describedby="{_escape(body_id)}">
-  <div class="overlay-backdrop" data-close-overlay></div>
-  <div class="overlay-content">
-    <button class="overlay-close" type="button" aria-label="Close project details" data-close-overlay>&times;</button>
-    <div class="overlay-scroll">
-      <h2 id="{_escape(title_id)}">{_escape(t)}</h2>
-      <img src="{_escape(img)}" alt="{_escape(t)}" class="overlay-hero">
-      <div class="overlay-body" id="{_escape(body_id)}">{overlay_body}</div>
-    </div>
-  </div>
-</div>""")
-
-        keyword_html = "".join(f"<span>{_escape(item)}</span>" for item in keywords_list)
-        keywords_block = f"<div class=\"tile-keywords\">{keyword_html}</div>" if keyword_html else ""
-        action_label = "Expand" if p_type == "overlay" else "Open"
-        if link_target.startswith(("http://", "https://")):
-            action_label = "Visit"
-        alt_media = ""
-        tile_class = f"profile-tile profile-tile--{_escape(tier)} project-card-v2 scroll-reveal"
-        float_offset = f"{(tile_index % 7) * 0.55:.2f}"
-        tile_style_parts = [f"--float-offset: {float_offset};"]
-        if alt_image:
-            alt_media = f"<div class=\"tile-media tile-media--alt\" style=\"background-image: url('{_escape(alt_image)}')\"></div>"
-            tile_class += " has-deck"
-            deck_delay = f"{(tile_index % 4) * 1.5:.1f}s"
-            tile_style_parts.append(f"--deck-delay: {deck_delay};")
-        tile_style = f" style=\"{' '.join(tile_style_parts)}\""
-        card_html = f"""
-<a href="{link_target}" class="{tile_class}" data-tier="{_escape(tier)}"{tile_style} {action_attr}>
-  <span class="tile-stack tile-stack--one"></span>
-  <span class="tile-stack tile-stack--two"></span>
-  <div class="tile-surface">
-    <div class="tile-media" style="background-image: url('{_escape(primary_image)}')"></div>
-    {alt_media}
-    <div class="tile-scrim"></div>
-    <div class="tile-content">
-      <h3>{_escape(t)}</h3>
-      {keywords_block}
-      <span class="tile-action">{action_label}</span>
-    </div>
-  </div>
-</a>"""
-        tile_index += 1
-        if tier == "upper":
-            upper_cards.append(card_html)
-        else:
-            lower_cards.append(card_html)
-
-    upper_html = "".join(upper_cards)
-    lower_html = "".join(lower_cards)
-    overlays_html = "".join(overlays)
-    
-    section_id = _escape(section.get("section_id", "projects"))
-    heading = _escape(section.get("title", "Projects"))
-    upper_row = f"<div class=\"profile-row profile-row--upper\">{upper_html}</div>" if upper_html else ""
-    lower_row = f"<div class=\"profile-row profile-row--lower\">{lower_html}</div>" if lower_html else ""
-    
-    return f"""
-<section class="content-section project-grid-section" id="{section_id}">
-  <div class="v2-grid-container">
-    <h2>{heading}</h2>
-    <div class="profile-tiles">
-      {upper_row}
-      {lower_row}
-    </div>
-  </div>
-  {overlays_html}
-</section>
-"""
-
-def _render_team_grid(section: dict[str, str], current_path: Path) -> str:
-    path = CONTENT_DIR / "team.json"
-    if not path.exists(): return "<p>Missing team.json</p>"
-    items = json.loads(path.read_text(encoding="utf-8"))
-    
-    cards = []
-    for p in items:
-        name = _escape(p.get("name", ""))
-        role = _escape(p.get("role", ""))
-        bio = _escape(p.get("bio", ""))
-        email = p.get("email", "")
-        img = _resolve_image_src(p.get("image", ""), current_path)
-        
-        # Links
-        links_html = ""
-        links = p.get("links", {})
-        if links:
-            link_items = []
-            for platform, url in links.items():
-                platform_name = platform.upper() if platform in ['orcid'] else platform.title()
-                link_items.append(f'<a href="{_escape(url)}" target="_blank" rel="noopener" class="team-link">{_escape(platform_name)}</a>')
-            links_html = '<div class="team-links">' + ' · '.join(link_items) + '</div>'
-        
-        # Research interests
-        interests = p.get("interests", [])
-        interests_html = ""
-        if interests:
-            tags = "".join(f'<span class="interest-tag">{_escape(i)}</span>' for i in interests[:4])
-            interests_html = f'<div class="team-interests">{tags}</div>'
-        
-        # Email
-        email_html = ""
-        if email:
-            email_html = f'<div class="team-email"><a href="mailto:{_escape(email)}">{_escape(email)}</a></div>'
-        
-        # Note (for special cases like AI agents or institutional entries)
-        note = p.get("note", "")
-        note_html = ""
-        if note:
-            note_html = f'<div class="team-note">{_escape(note)}</div>'
-        
-        cards.append(f"""
-<div class="team-card scroll-reveal">
-  <div class="team-img" style="background-image: url('{_escape(img)}')"></div>
-  <div class="team-info">
-    <h3>{name}</h3>
-    <span class="role">{role}</span>
-    <p>{bio}</p>
-    {interests_html}
-    {links_html}
-    {email_html}
-    {note_html}
-  </div>
-</div>""")
-
-    section_id = _escape(section.get("section_id", "team"))
-    heading = _escape(section.get("title", "Team"))
-    
-    return f"""
-<section class="content-section team-section" id="{section_id}">
-  <div class="v2-grid-container">
-    <h2>{heading}</h2>
-    <div class="team-grid">
-      {"".join(cards)}
-    </div>
-  </div>
-</section>
-"""
-
-def _render_pub_list(section: dict[str, str], current_path: Path) -> str:
-    path = CONTENT_DIR / "publications.json"
-    if not path.exists(): return "<p>Missing publications.json</p>"
-    items = json.loads(path.read_text(encoding="utf-8"))
-    
-    rows = []
-    for p in items:
-        title = _escape(p.get("title", ""))
-        authors = _escape(p.get("authors", ""))
-        venue = _escape(p.get("venue", ""))
-        year = _escape(p.get("year", ""))
-        link = _escape(p.get("link", "#"))
-        
-        rows.append(f"""
-<div class="pub-row scroll-reveal">
-  <div class="pub-year">{year}</div>
-  <div class="pub-content">
-    <a href="{link}" class="pub-title" target="_blank">{title}</a>
-    <div class="pub-meta">{authors} — <span class="venue">{venue}</span></div>
-  </div>
-</div>""")
-
-    section_id = _escape(section.get("section_id", "publications"))
-    heading = _escape(section.get("title", "Publications"))
-    
-    return f"""
-<section class="content-section pub-section" id="{section_id}">
-  <div class="v2-grid-container">
-    <h2>{heading}</h2>
-    <div class="pub-list">
-      {"".join(rows)}
-    </div>
-  </div>
-</section>
-"""
-
-def _render_research_grid(section: dict[str, str], current_path: Path) -> str:
-    path = CONTENT_DIR / "research.json"
-    if not path.exists(): return "<p>Missing research.json</p>"
-    items = json.loads(path.read_text(encoding="utf-8"))
-    
-    cards = []
-    for r in items:
-        title = _escape(r.get("title", ""))
-        teaser = _escape(r.get("teaser", ""))
-        desc = _escape(r.get("description", ""))
-        img = _resolve_image_src(r.get("image", ""), current_path)
-        status = r.get("status", "")
-        funding = r.get("funding", "")
-        duration = r.get("duration", "")
-        team = r.get("team", [])
-        
-        # Status badge
-        status_html = ""
-        if status:
-            status_class = "exploratory" if status.lower() == "exploratory" else ""
-            status_html = f'<span class="research-status {status_class}">{_escape(status)}</span>'
-        
-        # Metadata section
-        meta_html = ""
-        meta_parts = []
-        if duration:
-            meta_parts.append(f'<strong>Duration:</strong> {_escape(duration)}')
-        if funding:
-            meta_parts.append(f'<strong>Funding:</strong> {_escape(funding)}')
-        if team:
-            team_str = ", ".join(team[:3])
-            if len(team) > 3:
-                team_str += f" +{len(team)-3} more"
-            meta_parts.append(f'<strong>Team:</strong> {_escape(team_str)}')
-        
-        if meta_parts or status_html:
-            meta_html = f'<div class="research-meta">{status_html}{"".join(f"<div>{p}</div>" for p in meta_parts)}</div>'
-        
-        cards.append(f"""
-<div class="research-card scroll-reveal">
-  <div class="research-img"><img src="{img}" alt="{title}"></div>
-  <div class="research-content">
-    <h3>{title}</h3>
-    <p class="teaser">{teaser}</p>
-    <details>
-      <summary>Read More</summary>
-      <p class="desc">{desc}</p>
-      {meta_html}
-    </details>
-  </div>
-</div>""")
-
-    section_id = _escape(section.get("section_id", "research"))
-    heading = _escape(section.get("title", "Research Areas"))
-    
-    return f"""
-<section class="content-section research-section" id="{section_id}">
-  <div class="v2-grid-container">
-    <h2>{heading}</h2>
-    <div class="research-grid">
-      {"".join(cards)}
-    </div>
-  </div>
-</section>
-"""
-
-def _render_linkhub_links(links: list[dict[str, str]]) -> str:
-    if not links:
-        return ""
-    items = []
-    for link in links:
-        label = _escape(link.get("label", ""))
-        url = _escape(link.get("url", ""))
-        kind = (link.get("kind") or "").strip()
-        class_name = "linkhub-link placeholder" if kind == "placeholder" else "linkhub-link"
-        items.append(f"<a class=\"{class_name}\" href=\"{url}\" rel=\"noopener\">{label}</a>")
-    return "<div class=\"linkhub-links\">" + "".join(items) + "</div>"
-
-
-def _render_contact_form(section: dict[str, str], current_path: Path) -> str:
-    section_id = _escape(section.get("section_id", "contact-form"))
-    heading = _escape(section.get("title", "Contact"))
-    body = _render_markdown(_read_block(section.get("source_md", "")))
-    endpoint = _rel_link(current_path, Path("contact.php"))
-    return f"""
-<section class="content-section contact-section" id="{section_id}">
-  <div class="content-grid">
-    <div>
-      <h2>{heading}</h2>
-      {body}
-    </div>
-    <div class="contact-card">
-      <form class="contact-form" data-contact-form action="{_escape(endpoint)}" method="post">
-        <div class="contact-field">
-          <label for="contact-name">Name</label>
-          <input id="contact-name" name="name" type="text" required />
-        </div>
-        <div class="contact-field">
-          <label for="contact-email">Email</label>
-          <input id="contact-email" name="email" type="email" required />
-        </div>
-        <div class="contact-field">
-          <label for="contact-message">Message</label>
-          <textarea id="contact-message" name="message" rows="5" required></textarea>
-        </div>
-        <div class="contact-field sr-only" aria-hidden="true">
-          <label for="contact-company">Company</label>
-          <input id="contact-company" name="company" type="text" tabindex="-1" autocomplete="off" />
-        </div>
-        <button class="button" type="submit">Send message</button>
-        <p class="form-status" aria-live="polite"></p>
-      </form>
-    </div>
-  </div>
-</section>
+  <button class=\"cta\" type=\"submit\">Send message</button>
+  <p class=\"form-status\" aria-live=\"polite\"></p>
+</form>
 """
 
 
-def _render_digest_list(section: dict[str, str], current_path: Path, digests: list[dict[str, str]]) -> str:
-    section_id = _escape(section.get("section_id", "digest"))
-    heading = _escape(section.get("title", "Digest"))
-    intro = _render_markdown(_read_block(section.get("source_md", "")))
-    items = digests[:5]
+def render_digest_list(digests, current_slug: str, limit=None):
+    items = digests if limit is None else digests[:limit]
     if not items:
-        listing = "<p>No digests yet. Run tools/fetch_digest.py to create the first issue.</p>"
-    else:
-        cards = []
-        for digest in items:
-            target = _rel_dir_link(current_path, Path("digest") / digest["slug"])
-            cards.append(
-                f"""<article class=\"digest-card\">
-  <p class=\"post-date\">{_escape(digest['date'])}</p>
-  <h3><a href=\"{_escape(target)}\">{_escape(digest['title'])}</a></h3>
-</article>"""
-            )
-        listing = "<div class=\"digest-grid\">" + "".join(cards) + "</div>"
+        return "<p>No digests yet. Run tools/fetch_digest.py to publish the first issue.</p>"
+    cards = []
+    for digest in items:
+        href = _rel_link(current_slug, f"/digest/{digest['slug']}/")
+        cards.append(
+            f"<div class=\"card\"><div class=\"accent\">{_escape(digest['date'])}</div>"
+            f"<h3><a href=\"{_escape(href)}\">{_escape(digest['title'])}</a></h3></div>"
+        )
+    return "<div class=\"grid\">{}</div>".format("".join(cards))
+
+
+def parse_research_tiles(source_md: str):
+    raw = _read_block(source_md)
+    tiles = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = [part.strip() for part in stripped.split("|")]
+        if len(parts) < 4:
+            raise ValueError(f"Invalid research tile line: {line}")
+        title, summary, image, link = parts[:4]
+        if not (title and summary and image and link):
+            raise ValueError(f"Research tiles require title, summary, image, link: {line}")
+        tiles.append(
+            {
+                "title": title,
+                "summary": summary,
+                "image": image,
+                "link": link,
+            }
+        )
+    return tiles
+
+
+def render_research_tiles(section, current_slug: str):
+    tiles = parse_research_tiles(section.get("source_md", ""))
+    if not tiles:
+        return ""
+    cards = []
+    for tile in tiles:
+        href = _resolve_internal_url(tile["link"], current_slug) or "#"
+        image_ref = _resolve_image_ref(tile["image"], current_slug)
+        summary = _render_inline_markdown(tile["summary"])
+        cards.append(
+            f"<a class=\"tile-card\" href=\"{_escape(href)}\">"
+            f"<div class=\"tile-media\"><img src=\"{image_ref}\" alt=\"{_escape(tile['title'])} image\" /></div>"
+            f"<div><h3>{_escape(tile['title'])}</h3><p>{summary}</p></div>"
+            f"</a>"
+        )
+    title = _escape(section.get("title", "Research tiles"))
     return f"""
-<section class="content-section digest-section" id="{section_id}">
-  <div class="content-grid">
-    <div>
-      <h2>{heading}</h2>
-      {intro}
-    </div>
-    <div>
-      {listing}
-    </div>
-  </div>
+<section class=\"fade-in research-tiles\">
+  <h2>{title}</h2>
+  <div class=\"tile-grid\">{''.join(cards)}</div>
+</section>
+"""
+
+def render_section_block(section, current_slug: str):
+    heading = _escape(section.get("title", ""))
+    body_html = _render_markdown(_read_block(section.get("source_md", "")))
+    cta = ""
+    cta_text = section.get("cta_text") or ""
+    cta_url = _resolve_internal_url(section.get("cta_url", ""), current_slug)
+    if cta_text and cta_url:
+        cta = f"<div style=\"margin-top: 16px;\"><a class=\"cta\" href=\"{_escape(cta_url)}\">{_escape(cta_text)}</a></div>"
+    hero = ""
+    image_ref = _resolve_image_ref(section.get("hero_image", ""), current_slug)
+    if image_ref:
+        if any(image_ref.lower().endswith(ext) for ext in [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"]):
+            hero = f"<div class=\"media\"><img src=\"{image_ref}\" alt=\"{heading} visual\" /></div>"
+        else:
+            hero = f"<div class=\"placeholder-image\">Image placeholder — {_escape(section.get('hero_image', ''))}</div>"
+    return f"""
+<section class=\"fade-in\">
+  <h2>{heading}</h2>
+  {body_html}
+  {cta}
+  {hero}
 </section>
 """
 
 
-def _render_home_overview(pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    cards = []
-    for slug in NAV_SLUGS:
-        if slug in ("", "blog", "contact"):
+def render_sections(sections, current_slug: str, digests=None, digest_limit=None, links=None):
+    blocks = []
+    digests = digests or []
+    for section in sections:
+        kind = (section.get("kind") or "section").lower()
+        if kind == "hero":
             continue
-        if slug not in pages:
+        if kind == "newsletter":
+            body_html = _render_markdown(_read_block(section.get("source_md", "")))
+            blocks.append(
+                f"<section class=\"fade-in\"><h2>{_escape(section.get('title', 'Newsletter'))}</h2>"
+                f"{body_html}{render_newsletter_form(current_slug)}</section>"
+            )
             continue
-        title = pages[slug]["title"]
-        target = _rel_page_link(current_path, slug)
-        cards.append(
-            f"<a class=\"card\" href=\"{_escape(target)}\"><h3>{_escape(title)}</h3><p>Placeholder summary for { _escape(title) }.</p></a>"
-        )
-    return "<div class=\"card-grid\">" + "".join(cards) + "</div>"
-
-
-def _render_blog_index(posts: list[dict[str, str]], current_path: Path) -> str:
-    if not posts:
-        return "<p>No posts yet. Add a file to content/blog/ to publish the first update.</p>"
-    cards = []
-    for post in posts:
-        target = _rel_dir_link(current_path, Path("blog") / post["slug"])
-        excerpt = _split_paragraphs(post.get("body", ""))
-        teaser = excerpt[0] if excerpt else ""
-        cards.append(
-            """
-<article class="post-card">
-  <p class="post-date">{date}</p>
-  <h3><a href="{href}">{title}</a></h3>
-  <p>{teaser}</p>
-</article>
-""".format(
-                date=_escape(post.get("date", "")),
-                href=_escape(target),
-                title=_escape(post.get("title", "")),
-                teaser=_escape(teaser),
+        if kind == "contact_form":
+            body_html = _render_markdown(_read_block(section.get("source_md", "")))
+            blocks.append(
+                f"<section class=\"fade-in\"><h2>{_escape(section.get('title', 'Contact'))}</h2>"
+                f"{body_html}{render_contact_form(current_slug)}</section>"
             )
-        )
-    return "<div class=\"post-grid\">" + "".join(cards) + "</div>"
-
-
-def _render_digest_index(digests: list[dict[str, str]], current_path: Path) -> str:
-    if not digests:
-        return "<p>No digests yet. Add feeds and run tools/fetch_digest.py to publish the first issue.</p>"
-    cards = []
-    for digest in digests:
-        target = _rel_dir_link(current_path, Path("digest") / digest["slug"])
-        cards.append(
-            """
-<article class="digest-card">
-  <p class="post-date">{date}</p>
-  <h3><a href="{href}">{title}</a></h3>
-</article>
-""".format(
-                date=_escape(digest.get("date", "")),
-                href=_escape(target),
-                title=_escape(digest.get("title", "")),
+            continue
+        if kind == "digest_list":
+            digest_html = render_digest_list(digests, current_slug, digest_limit)
+            blocks.append(f"<section class=\"fade-in\"><h2>{_escape(section.get('title', 'Digest'))}</h2>{digest_html}</section>")
+            continue
+        if kind == "research_tiles":
+            blocks.append(render_research_tiles(section, current_slug))
+            continue
+        if kind == "linkhub" and links is not None:
+            link_cards = "".join(
+                f"<div class=\"card\"><div class=\"accent\">{_escape(link['label'])}</div>"
+                f"<div><a href=\"{_escape(link['url'])}\">{_escape(link['url'])}</a></div></div>"
+                for link in links
             )
-        )
-    return "<div class=\"digest-grid\">" + "".join(cards) + "</div>"
+            blocks.append(
+                f"<section class=\"fade-in\"><h2>{_escape(section.get('title', 'Links'))}</h2>"
+                f"{_render_markdown(_read_block(section.get('source_md', '')))}"
+                f"<div class=\"grid\">{link_cards}</div></section>"
+            )
+            continue
+        blocks.append(render_section_block(section, current_slug))
+    return "\n".join(blocks)
 
 
-def _render_digest_page(digest: dict[str, str], pages: dict[str, dict[str, object]], site: dict[str, str], links: list[dict[str, str]]) -> None:
-    slug = digest["slug"]
-    current_path = Path("digest") / slug / "index.html"
-    css_href = _rel_link(current_path, Path("assets/css/style.css"))
-    header = _render_header("digest", pages, current_path, site)
-    footer = _render_footer(site, pages, current_path, links)
-    back_link = _rel_page_link(current_path, "digest")
-    body_html = _render_markdown(_read_block(digest.get("source_md", "")))
-    
-    # Search UI
-    search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
-    search_ui = f"""
-  <div class="search-container">
-    <div class="search-box">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
-        <span class="search-shortcut">Ctrl+K</span>
-      </div>
-      <div id="search-results"></div>
-    </div>
-  </div>
-"""
-    
-    doc = f"""<!doctype html>
-<html lang=\"en\">
-{_render_head(digest.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css, site=site, page_url=site.get('domain', '') + f"/digest/{slug}/")}
-<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
-  {search_ui}
-  <div class="page-shell">
-    {header}
-    <main>
-      <section class="page-hero">
-        <div class="page-hero-inner">
-          <p class="eyebrow">Research Digest</p>
-          <h1>{_escape(digest.get('title', ''))}</h1>
-          <p class="post-date">{_escape(digest.get('date', ''))}</p>
-        </div>
-      </section>
-      <section class="page-body">
-        <div class="content-block">
-          {body_html}
-          <a class="button ghost" href="{_escape(back_link)}">Back to digest</a>
-        </div>
-      </section>
-    </main>
-    {footer}
-  </div>
-  <script src="{_escape(_rel_link(current_path, Path('assets/js/main.js')))}"></script>
-  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
-</body>
-</html>
-"""
-    output_path = SITE_DIR / current_path
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(doc, encoding="utf-8")
-
-
-def _render_blog_post(post: dict[str, str], pages: dict[str, dict[str, object]]) -> None:
-    slug = post["slug"]
-    current_path = Path("blog") / slug / "index.html"
-    site = _read_site_config()
-    css_href = _rel_link(current_path, Path("assets/css/style.css"))
-    header = _render_header("blog", pages, current_path, site)
-    footer = _render_footer(site, pages, current_path, _read_links())
-    back_link = _rel_page_link(current_path, "blog")
-    body_html = _render_paragraphs(post.get("body", ""))
-    
-    # Search UI
-    search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
-    search_ui = f"""
-  <div class="search-container">
-    <div class="search-box">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
-        <span class="search-shortcut">Ctrl+K</span>
-      </div>
-      <div id="search-results"></div>
-    </div>
-  </div>
-"""
-    
-    doc = f"""<!doctype html>
-<html lang=\"en\">
-{_render_head(post.get('title', ''), css_href, site.get('meta_description', ''), extra_css=search_css, site=site, page_url=site.get('domain', '') + f"/blog/{slug}/")}
-<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
-  {search_ui}
-  <div class="page-shell">
-    {header}
-    <main>
-      <section class="page-hero">
-        <div class="page-hero-inner">
-          <p class="eyebrow">Institute Blog</p>
-          <h1>{_escape(post.get('title', ''))}</h1>
-          <p class="post-date">{_escape(post.get('date', ''))}</p>
-        </div>
-      </section>
-      <section class="page-body">
-        <div class="content-block">
-          {body_html}
-          <a class="button ghost" href="{_escape(back_link)}">Back to blog</a>
-        </div>
-      </section>
-    </main>
-    {footer}
-  </div>
-  <script src="{_escape(_rel_link(current_path, Path('assets/js/main.js')))}"></script>
-  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
-</body>
-</html>
-"""
-    output_path = SITE_DIR / current_path
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(doc, encoding="utf-8")
-
-
-
-def _build_css(site: dict[str, Any]) -> str:
-    theme = site.get("theme", {})
-    if not isinstance(theme, dict):
-        theme = {}
-        
-    # Defaults (ALI Bordeaux)
-    primary = theme.get("primary", "#65141c")
-    primary_dark = theme.get("primary_dark", "#3a1016")
-    primary_bright = theme.get("primary_bright", "#92202b")
-    cream = theme.get("background", "#f3f1f0")
-    paper = theme.get("paper", "#f9f8f7")
-    gold = theme.get("accent", "#e0b15a")
-    text_main = theme.get("text_main", "#1a1a1a")
-    text_muted = theme.get("text_muted", "#4a4a4a")
-
-    # Theme Specifics
-    theme_overrides = ""
-    profile_lower_columns = str(site.get("profile_lower_columns") or "3").strip()
-    layout_variant = site.get("layout_variant", "standard")
-
-    if layout_variant == "sentient":
-        theme_overrides = f"""
-        /* Sentient / Terminal Theme */
-        body {{
-            background-color: #0d1117;
-            background-image: linear-gradient(0deg, transparent 24%, rgba(0, 255, 100, .03) 25%, rgba(0, 255, 100, .03) 26%, transparent 27%, transparent 74%, rgba(0, 255, 100, .03) 75%, rgba(0, 255, 100, .03) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(0, 255, 100, .03) 25%, rgba(0, 255, 100, .03) 26%, transparent 27%, transparent 74%, rgba(0, 255, 100, .03) 75%, rgba(0, 255, 100, .03) 76%, transparent 77%, transparent);
-            background-size: 50px 50px;
-            font-family: 'Courier New', Courier, monospace;
-        }}
-        .sentient-layout {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-        }}
-        .terminal-window {{
-            background: rgba(13, 17, 23, 0.95);
-            border: 1px solid var(--primary);
-            box-shadow: 0 0 20px rgba(0, 255, 100, 0.2);
-            border-radius: 6px;
-            overflow: hidden;
-            font-family: 'Fira Code', 'Courier New', monospace;
-        }}
-        .terminal-header {{
-            background: #161b22;
-            padding: 8px 16px;
-            border-bottom: 1px solid #30363d;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .terminal-controls {{ display: flex; gap: 8px; }}
-        .control {{ width: 12px; height: 12px; border-radius: 50%; }}
-        .control.close {{ background: #ff5f56; }}
-        .control.minimize {{ background: #ffbd2e; }}
-        .control.maximize {{ background: #27c93f; }}
-        .terminal-title {{ color: #8b949e; font-size: 14px; }}
-        .terminal-content {{ padding: 20px; color: var(--text-main); }}
-        .prompt-line {{ margin-bottom: 1rem; }}
-        .prompt-user {{ color: #7ee787; font-weight: bold; }}
-        .prompt-char {{ color: #79c0ff; margin-right: 8px; }}
-        .command-input {{ color: var(--text-main); background: transparent; border: none; font-family: inherit; font-size: inherit; width: 80%; outline: none; }}
-        .cursor {{ display: inline-block; width: 10px; height: 1.2em; background: var(--primary); animation: blink 1s step-end infinite; vertical-align: middle; }}
-        @keyframes blink {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0; }} }}
-        .system-status {{ border: 1px solid var(--primary-dark); padding: 1rem; margin-bottom: 2rem; color: var(--primary); background: rgba(0, 255, 100, 0.05); }}
-        .status-row {{ display: flex; justify-content: space-between; margin-bottom: 0.5rem; }}
-        .status-value {{ font-weight: bold; }}
-        .grid-dashboard {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }}
-        .module-card {{ border: 1px solid #30363d; padding: 1.5rem; background: #0d1117; transition: all 0.2s; }}
-        .module-card:hover {{ border-color: var(--primary); box-shadow: 0 0 15px rgba(0, 255, 100, 0.1); }}
-        .module-header {{ border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-bottom: 1rem; font-weight: bold; color: var(--primary); }}
-        """
-
-    elif layout_variant == "standard" and "holobiontic" in site.get("site_name", "").lower():
-        theme_overrides = f"""
-        /* Holobiontic / Bio Theme */
-        :root {{
-            color-scheme: dark;
-            --card: rgba(10, 31, 18, 0.75);
-            --card-border: rgba(74, 222, 128, 0.22);
-            --glass: rgba(12, 30, 20, 0.6);
-        }}
-        body {{
-            background-color: var(--primary-dark);
-            background-image:
-              radial-gradient(circle at 15% 20%, rgba(74, 222, 128, 0.18), transparent 45%),
-              radial-gradient(circle at 80% 10%, rgba(202, 168, 106, 0.15), transparent 35%),
-              radial-gradient(circle at 40% 80%, rgba(45, 122, 70, 0.2), transparent 50%),
-              linear-gradient(180deg, rgba(10, 31, 18, 0.95) 0%, rgba(5, 16, 11, 0.98) 100%);
-        }}
-        body::before {{
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-image:
-              radial-gradient(circle at 20% 30%, rgba(74, 222, 128, 0.08), transparent 45%),
-              radial-gradient(circle at 70% 40%, rgba(202, 168, 106, 0.08), transparent 50%);
-            opacity: 0.6;
-            z-index: -1;
-            pointer-events: none;
-        }}
-        .site-header {{
-            background: rgba(7, 20, 12, 0.85);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--card-border);
-        }}
-        .site-header.scrolled {{
-            background: rgba(7, 20, 12, 0.95);
-        }}
-        h1, h2, h3 {{ color: var(--primary-bright); font-family: "Playfair Display", serif; }}
-        h2 {{ border-bottom: 1px solid rgba(202, 168, 106, 0.45); }}
-        .card, .profile-card, .content-block {{
-            background: var(--card);
-            border: 1px solid var(--card-border);
-            box-shadow: 0 24px 45px -35px rgba(0, 0, 0, 0.7);
-            border-radius: 16px;
-            backdrop-filter: blur(10px);
-        }}
-        .project-grid-section .profile-tile {{
-            background: rgba(6, 18, 12, 0.6);
-        }}
-        .page-hero {{
-            position: relative;
-            overflow: hidden;
-        }}
-        .page-hero::before {{
-            content: "";
-            position: absolute;
-            inset: -10% -5% auto -5%;
-            height: 140%;
-            background: radial-gradient(circle at 35% 35%, rgba(74, 222, 128, 0.18), transparent 60%);
-            opacity: 0.8;
-            pointer-events: none;
-        }}
-        .page-hero::after {{
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(circle at 70% 20%, rgba(202, 168, 106, 0.18), transparent 50%);
-            opacity: 0.7;
-            animation: tide 12s ease-in-out infinite;
-            pointer-events: none;
-        }}
-        @keyframes tide {{
-            0%, 100% {{ opacity: 0.5; transform: translateY(0); }}
-            50% {{ opacity: 0.85; transform: translateY(-8px); }}
-        }}
-        .button {{
-            background: linear-gradient(135deg, var(--primary-bright), var(--primary-dark));
-            border-radius: 20px;
-            border-color: transparent;
-            font-family: var(--font-body);
-            letter-spacing: 0.05em;
-        }}
-        .image-frame img {{ border-radius: 12px; }}
-        """
-
+def render_scripts():
     return f"""
-:root {{
-  color-scheme: light;
-  
-  /* Dynamic Theme Tokens */
-  --primary: {primary};
-  --primary-dark: {primary_dark};
-  --primary-bright: {primary_bright};
-  --cream: {cream};
-  --paper: {paper};
-  --gold: {gold};
-  
-  --bg-dark: var(--primary-dark);
-  --bg-light: var(--paper);
-  --text-main: {text_main};
-  --text-muted: {text_muted};
-  
-  --header-bg: {cream}d9;
-  --card: #ffffff;
-  --card-border: {primary}1a;
-  --glass: rgba(255, 255, 255, 0.6);
-  --shadow: {primary_dark}1a;
-  
-  --font-heading: "Cormorant Garamond", serif;
-  --font-body: "Outfit", sans-serif;
-  --radius: 8px;
-  --profile-lower-columns: {profile_lower_columns};
-  --max-width: 1200px;
-}}
+<script>
+  const introKey = "{INTRO_KEY}";
+  const themeKey = "{THEME_KEY}";
+  const overlay = document.getElementById("intro-overlay");
+  const enterBtn = document.getElementById("intro-enter");
+  const skipBtn = document.getElementById("intro-skip");
+  const themeToggle = document.getElementById("theme-toggle");
 
-/* Base & Reset */
-*, *::before, *::after {{ box-sizing: border-box; }}
-html {{ scroll-behavior: smooth; }}
-body {{
-  margin: 0;
-  font-family: var(--font-body);
-  background: var(--paper);
-  color: var(--text-main);
-  line-height: 1.7;
-  font-feature-settings: "kern", "liga", "clig", "calt";
-  transition: background-color 0.3s, color 0.3s;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}}
-
-/* Typography */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600&family=Fira+Code:wght@400;500&family=Playfair+Display:wght@400;700&display=swap');
-
-h1, h2, h3, h4, h5, h6 {{
-  font-family: var(--font-heading);
-  color: var(--primary);
-  margin-top: 2rem;
-  margin-bottom: 1rem;
-  line-height: 1.2;
-}}
-
-h1 {{ font-size: clamp(2.5rem, 5vw, 4.5rem); letter-spacing: -0.02em; margin-bottom: 1rem; }}
-h2 {{ font-size: clamp(2rem, 4vw, 3rem); padding-bottom: 0.5rem; border-bottom: 1px solid var(--gold); display: inline-block; }}
-h3 {{ font-size: 1.75rem; }}
-p {{ margin-bottom: 1.5rem; max-width: 70ch; }}
-
-a {{ color: var(--primary); text-decoration: none; font-weight: 500; transition: all 0.2s ease; position: relative; }}
-a:not(.button):hover {{ color: var(--primary-bright); }}
-a:not(.button)::after {{
-    content: ''; position: absolute; width: 100%; transform: scaleX(0); height: 1px; bottom: -2px; left: 0;
-    background-color: var(--primary-bright); transform-origin: bottom right; transition: transform 0.25s ease-out;
-}}
-a:not(.button):hover::after {{ transform: scaleX(1); transform-origin: bottom left; }}
-
-/* Layout */
-.page-shell {{ min-height: 100vh; display: flex; flex-direction: column; }}
-main {{ flex: 1; padding-top: 80px; width: 100%; max-width: var(--max-width); margin: 0 auto; padding-left: 5vw; padding-right: 5vw; }}
-
-/* Header */
-.site-header {{
-  position: fixed;
-  top: 0; left: 0; width: 100%;
-  padding: 1rem 5vw;
-  display: flex; justify-content: space-between; align-items: center;
-  z-index: 1000;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-  transition: all 0.3s ease;
-}}
-.site-header.scrolled {{ padding: 0.75rem 5vw; background: rgba(255, 255, 255, 0.95); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }}
-
-.logo {{ font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); letter-spacing: 0.05em; text-transform: uppercase; }}
-.nav {{ display: flex; gap: 2rem; }}
-.nav a {{ color: var(--text-muted); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.1em; font-weight: 600; }}
-.nav a:hover, .nav a.active {{ color: var(--primary); }}
-.nav a::after {{ display: none; }} /* Disable underline for nav items */
-
-/* Burger Menu */
-.header-right {{ display: flex; align-items: center; gap: 1rem; }}
-.burger-toggle {{
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  width: 30px;
-  height: 20px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  z-index: 1001;
-}}
-.burger-toggle span {{
-  display: block;
-  width: 100%;
-  height: 2px;
-  background: var(--text-main);
-  transition: transform 0.3s ease;
-}}
-.burger-menu-overlay {{
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
-  background: rgba(10, 10, 10, 0.95);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 6rem 2rem 3rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
-}}
-.burger-menu-overlay.active {{
-  opacity: 1;
-  pointer-events: all;
-}}
-.burger-close {{
-  position: absolute;
-  top: 2rem;
-  right: 2rem;
-  font-size: 3rem;
-  background: none;
-  border: none;
-  color: var(--text-main);
-  cursor: pointer;
-}}
-.burger-nav {{
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  text-align: center;
-}}
-.burger-nav a {{
-  font-family: var(--font-heading);
-  font-size: 2rem;
-  color: var(--text-main);
-  text-decoration: none;
-  transition: color 0.3s ease;
-}}
-.burger-nav a:hover {{
-  color: var(--gold);
-}}
-.burger-nav hr {{
-  width: 50%;
-  margin: 1rem auto;
-  border: 0;
-  border-top: 1px solid var(--card-border);
-}}
-
-/* Profile Tiles */
-.profile-tiles {{
-  display: grid;
-  gap: 2rem;
-  margin-top: 2.5rem;
-}}
-.profile-row {{
-  gap: 1.5rem;
-}}
-.profile-row--upper {{
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  perspective: 1200px;
-}}
-.profile-row--lower {{
-  display: grid;
-  grid-template-columns: repeat(var(--profile-lower-columns), minmax(220px, 1fr));
-}}
-.profile-tile {{
-  --tile-tilt-x: 0deg;
-  --tile-tilt-y: 0deg;
-  --glow-x: 50%;
-  --glow-y: 25%;
-  --float-x: 0px;
-  --float-y: 0px;
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  min-height: 240px;
-  border-radius: 18px;
-  overflow: visible;
-  color: #f8f7f4;
-  text-decoration: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.4);
-  box-shadow: 0 24px 50px -30px rgba(0, 0, 0, 0.6);
-  transform-style: preserve-3d;
-  transition: transform 0.4s ease, box-shadow 0.4s ease, border-color 0.4s ease, flex 0.45s ease;
-  transform: translate3d(var(--float-x), var(--float-y), 0) rotateX(var(--tile-tilt-x)) rotateY(var(--tile-tilt-y));
-}}
-.profile-tile::before {{
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at var(--glow-x) var(--glow-y), rgba(255, 255, 255, 0.35), transparent 55%);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: 1;
-}}
-.profile-tile::after {{
-  content: "";
-  position: absolute;
-  inset: 12% 6% auto 6%;
-  height: 55%;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.08);
-  filter: blur(28px);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: 1;
-}}
-.profile-tile:hover {{
-  transform: translate3d(var(--float-x), calc(var(--float-y) - 10px), 0) rotateX(var(--tile-tilt-x)) rotateY(var(--tile-tilt-y));
-  box-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.7);
-  border-color: rgba(255, 255, 255, 0.35);
-}}
-.profile-tile:hover::before,
-.profile-tile:hover::after {{
-  opacity: 1;
-}}
-.profile-row--upper .profile-tile {{
-  flex: 1 1 240px;
-  min-height: 320px;
-  --tile-tilt-x: 4deg;
-  --tile-tilt-y: 0deg;
-}}
-.profile-row--upper .profile-tile:hover {{
-  flex: 1.55 1 240px;
-}}
-.profile-row--lower .profile-tile {{
-  min-height: 210px;
-}}
-.tile-stack {{
-  position: absolute;
-  inset: 0;
-  border-radius: 20px;
-  background: rgba(15, 15, 15, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 20px 40px -35px rgba(0, 0, 0, 0.6);
-  transform-style: preserve-3d;
-  pointer-events: none;
-  z-index: 0;
-  transition: transform 0.4s ease, opacity 0.4s ease;
-}}
-.tile-stack--one {{
-  transform: translate3d(0, 14px, -40px) scale(0.98);
-  opacity: 0.8;
-}}
-.tile-stack--two {{
-  transform: translate3d(0, 26px, -80px) scale(0.95);
-  opacity: 0.6;
-}}
-.profile-tile:hover .tile-stack--one {{
-  transform: translate3d(0, 18px, -40px) scale(0.98);
-}}
-.profile-tile:hover .tile-stack--two {{
-  transform: translate3d(0, 30px, -80px) scale(0.95);
-}}
-.tile-surface {{
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  height: 100%;
-  border-radius: 18px;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.45);
-}}
-.tile-media {{
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  filter: brightness(0.6) saturate(0.95);
-  transition: transform 0.6s ease, filter 0.4s ease;
-  z-index: 0;
-}}
-.tile-media--alt {{
-  opacity: 0;
-  transition: opacity 0.6s ease;
-  z-index: 0;
-}}
-.profile-tile.has-deck .tile-media {{
-  animation: deck-base 12s ease-in-out infinite;
-  animation-delay: var(--deck-delay, 0s);
-}}
-.profile-tile.has-deck .tile-media--alt {{
-  animation: deck-alt 12s ease-in-out infinite;
-  animation-delay: calc(var(--deck-delay, 0s) + 6s);
-}}
-.profile-row--upper .tile-media {{
-  animation-name: deck-base, media-drift;
-  animation-duration: 12s, 16s;
-  animation-timing-function: ease-in-out, ease-in-out;
-  animation-iteration-count: infinite, infinite;
-  animation-delay: var(--deck-delay, 0s), 0s;
-}}
-.profile-row--upper .tile-media--alt {{
-  animation-name: deck-alt, media-drift;
-  animation-duration: 12s, 16s;
-  animation-timing-function: ease-in-out, ease-in-out;
-  animation-iteration-count: infinite, infinite;
-  animation-delay: calc(var(--deck-delay, 0s) + 6s), 0s;
-}}
-.profile-tile:hover .tile-media {{
-  transform: scale(1.06);
-  filter: brightness(0.5) saturate(1.1);
-}}
-.profile-tile:hover .tile-media--alt {{
-  opacity: 1;
-}}
-.tile-scrim {{
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.7) 70%);
-  transform: translateZ(10px);
-  z-index: 1;
-}}
-.tile-content {{
-  position: relative;
-  z-index: 2;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  transform: translateZ(26px);
-}}
-.tile-content h3 {{
-  margin: 0;
-  font-size: 1.5rem;
-  color: #f8f7f4;
-}}
-.tile-keywords {{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}}
-.tile-keywords span {{
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.45);
-}}
-.tile-action {{
-  font-size: 0.7rem;
-  letter-spacing: 0.25em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.7);
-}}
-
-@keyframes deck-base {{
-  0%, 45% {{ opacity: 1; }}
-  55%, 100% {{ opacity: 0; }}
-}}
-
-@keyframes deck-alt {{
-  0%, 45% {{ opacity: 0; }}
-  55%, 100% {{ opacity: 1; }}
-}}
-
-@keyframes media-drift {{
-  0%, 100% {{ background-position: 50% 50%; }}
-  50% {{ background-position: 55% 45%; }}
-}}
-
-/* Project Overlays */
-.project-overlay {{
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
-  perspective: 1200px;
-}}
-.project-overlay.active {{
-  opacity: 1;
-  pointer-events: all;
-}}
-.overlay-backdrop {{
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}}
-.overlay-content {{
-  position: relative;
-  width: min(900px, 92vw);
-  max-height: 85vh;
-  background: var(--paper);
-  border: 1px solid var(--card-border);
-  border-radius: 16px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  transform: translateY(24px) scale(0.92) rotateX(-8deg);
-  transform-origin: var(--origin-x, 50%) var(--origin-y, 20%);
-  transition: transform 0.45s ease, opacity 0.35s ease;
-}}
-.project-overlay.active .overlay-backdrop {{
-  opacity: 1;
-}}
-.project-overlay.active .overlay-content {{
-  opacity: 1;
-  transform: translateY(0) scaleY(1) rotateX(0deg);
-}}
-.overlay-close {{
-  position: absolute;
-  top: 1rem;
-  right: 1.5rem;
-  font-size: 2rem;
-  background: none;
-  border: none;
-  color: var(--text-main);
-  cursor: pointer;
-  z-index: 10;
-}}
-.overlay-scroll {{
-  overflow-y: auto;
-  padding: 2rem;
-}}
-.overlay-hero {{
-  width: 100%;
-  height: 260px;
-  object-fit: cover;
-  border-radius: 12px;
-  margin-bottom: 2rem;
-}}
-.overlay-body {{
-  font-family: var(--font-body);
-  line-height: 1.6;
-}}
-.overlay-body h3 {{
-  font-family: var(--font-heading);
-  margin-top: 1.5rem;
-}}
-
-/* Scroll Reveal */
-.scroll-reveal {{
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.6s ease, transform 0.6s ease;
-}}
-.scroll-reveal.revealed {{
-  opacity: 1;
-  transform: translateY(0);
-}}
-
-@media (max-width: 900px) {{
-  .profile-row--upper .profile-tile {{
-    flex: 1 1 100%;
+  function setTheme(theme) {{
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(themeKey, theme);
   }}
-  .profile-row--upper .profile-tile:hover {{
-    flex: 1 1 100%;
+
+  function setupIntro() {{
+    if (!overlay) return;
+    function hideIntro() {{
+      if (!overlay.classList.contains("active")) return;
+      overlay.classList.remove("active");
+      localStorage.setItem(introKey, "1");
+    }}
+    function showIntroOnce() {{
+      if (localStorage.getItem(introKey)) return;
+      overlay.classList.add("active");
+      setTimeout(hideIntro, 2600);
+    }}
+    showIntroOnce();
+    if (enterBtn) enterBtn.addEventListener("click", hideIntro);
+    if (skipBtn) skipBtn.addEventListener("click", hideIntro);
   }}
-  .profile-row--lower {{
-    grid-template-columns: repeat(2, minmax(200px, 1fr));
+
+  function createMailtoFallback(email, subject, body, container) {{
+    const existing = container.querySelector('.mailto-fallback');
+    if (existing) existing.remove();
+    
+    const link = document.createElement('a');
+    link.className = 'mailto-fallback cta';
+    link.style.marginTop = '10px';
+    link.style.display = 'inline-block';
+    link.style.background = 'transparent';
+    link.style.border = '1px solid var(--accent)';
+    link.style.color = 'var(--accent)';
+    link.href = `mailto:${{email}}?subject=${{encodeURIComponent(subject)}}&body=${{encodeURIComponent(body)}}`;
+    link.textContent = 'Send via Email App';
+    container.appendChild(link);
   }}
-}}
 
-@media (max-width: 768px) {{
-  .profile-row--lower {{
-    grid-template-columns: 1fr;
-  }}
-  .burger-nav a {{
-    font-size: 1.5rem;
-  }}
-  .burger-close {{
-    top: 1.5rem;
-    right: 1.25rem;
-    font-size: 2.5rem;
-  }}
-}}
-
-@media (prefers-reduced-motion: reduce) {{
-  .profile-tile,
-  .overlay-content,
-  .scroll-reveal {{
-    transition: none;
-    transform: none;
-  }}
-  .profile-tile:hover {{
-    transform: none;
-  }}
-  .tile-media,
-  .tile-media--alt {{
-    transition: none;
-    animation: none;
-  }}
-}}
-
-/* Components */
-.construction-banner {{
-  background: var(--gold);
-  color: #000;
-  text-align: center;
-  padding: 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  position: relative;
-  z-index: 2000;
-}}
-
-.card, .profile-card {{
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius);
-  padding: 2rem;
-  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.02);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}}
-.card:hover {{ transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.02); border-color: var(--gold); }}
-
-.button {{
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0.75rem 1.5rem;
-  background: var(--primary); color: #fff;
-  border-radius: 4px; border: 1px solid var(--primary);
-  text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.1em; font-weight: 600;
-  cursor: pointer; transition: all 0.2s ease;
-}}
-.button:hover {{ background: var(--primary-bright); border-color: var(--primary-bright); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
-.button.ghost {{ background: transparent; color: var(--primary); }}
-.button.ghost:hover {{ background: var(--primary); color: #fff; }}
-
-/* Grid Layouts */
-.content-grid {{ display: grid; grid-template-columns: 1fr; gap: 3rem; margin: 4rem 0; }}
-@media (min-width: 768px) {{
-  .content-grid {{ grid-template-columns: 1fr 1fr; align-items: center; }}
-  .content-grid > div:first-child {{ order: 1; }}
-  .content-grid > div:last-child {{ order: 2; }}
-}}
-
-.card-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2rem; margin: 3rem 0; }}
-
-/* Footer */
-.site-footer {{
-  background: var(--primary-dark); color: var(--cream);
-  padding: 4rem 5vw; margin-top: 6rem;
-}}
-.site-footer a {{ color: var(--gold); opacity: 0.8; }}
-.site-footer a:hover {{ opacity: 1; }}
-.footer-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 3rem; }}
-.footer-title {{ font-family: var(--font-heading); font-size: 1.25rem; margin-bottom: 1.5rem; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem; }}
-
-/* Utilities */
-.sr-only {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }}
-.image-frame {{ border-radius: var(--radius); overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }}
-.image-frame img {{ width: 100%; height: auto; display: block; transition: transform 0.5s ease; }}
-.image-frame:hover img {{ transform: scale(1.03); }}
-
-/* Form Elements */
-input, textarea {{
-  width: 100%; padding: 1rem;
-  border: 1px solid var(--card-border); border-radius: 4px;
-  background: rgba(255,255,255,0.8);
-  font-family: var(--font-body); font-size: 1rem;
-  margin-bottom: 1.5rem; transition: all 0.2s;
-}}
-input:focus, textarea:focus {{ border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(101, 20, 28, 0.1); }}
-
-{theme_overrides}
-"""
-
-
-def _build_js() -> str:
-    return """
-const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-function revealOnScroll() {
-  const revealItems = document.querySelectorAll('.reveal');
-  if (prefersReduced) {
-    revealItems.forEach((item) => item.classList.add('is-visible'));
-    return;
-  }
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('is-visible');
-        observer.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.2 });
-
-  revealItems.forEach((item) => observer.observe(item));
-}
-
-function smoothScroll() {
-  document.querySelectorAll('a[href^="#"]').forEach((link) => {
-    link.addEventListener('click', (event) => {
-      const targetId = link.getAttribute('href');
-      if (!targetId || targetId.length < 2) return;
-      const target = document.querySelector(targetId);
-      if (!target) return;
-      event.preventDefault();
-      target.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth' });
-    });
-  });
-}
-
-function setupScrollReveal() {
-  const revealItems = document.querySelectorAll('.scroll-reveal');
-  if (!revealItems.length) return;
-  if (prefersReduced) {
-    revealItems.forEach((item) => item.classList.add('revealed'));
-    return;
-  }
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('revealed');
-        observer.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.1 });
-
-  revealItems.forEach((item) => observer.observe(item));
-}
-
-function setupTileBackgrounds() {
-  document.querySelectorAll('[data-bg]').forEach((node) => {
-    const url = node.getAttribute('data-bg');
-    if (!url || node.style.backgroundImage) return;
-    node.style.backgroundImage = `url('${url}')`;
-  });
-}
-
-function setupTileTilt() {
-  if (prefersReduced) return;
-  const tiles = document.querySelectorAll('.profile-row--upper .profile-tile');
-  tiles.forEach((tile) => {
-    let frame = null;
-    const handleMove = (event) => {
-      const rect = tile.getBoundingClientRect();
-      const x = (event.clientX - rect.left) / rect.width;
-      const y = (event.clientY - rect.top) / rect.height;
-      const tiltX = (0.5 - y) * 10;
-      const tiltY = (x - 0.5) * 12;
-      const glowX = `${(x * 100).toFixed(1)}%`;
-      const glowY = `${(y * 100).toFixed(1)}%`;
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        tile.style.setProperty('--tile-tilt-x', `${tiltX.toFixed(2)}deg`);
-        tile.style.setProperty('--tile-tilt-y', `${tiltY.toFixed(2)}deg`);
-        tile.style.setProperty('--glow-x', glowX);
-        tile.style.setProperty('--glow-y', glowY);
-      });
-    };
-    const handleLeave = () => {
-      if (frame) cancelAnimationFrame(frame);
-      tile.style.setProperty('--tile-tilt-x', '0deg');
-      tile.style.setProperty('--tile-tilt-y', '0deg');
-      tile.style.setProperty('--glow-x', '50%');
-      tile.style.setProperty('--glow-y', '25%');
-    };
-    tile.addEventListener('mousemove', handleMove);
-    tile.addEventListener('mouseleave', handleLeave);
-  });
-}
-
-function setupTileFloat() {
-  if (prefersReduced) return;
-  const tiles = Array.from(document.querySelectorAll('.profile-tile'));
-  if (!tiles.length) return;
-  let raf = null;
-  const animate = (time) => {
-    tiles.forEach((tile, index) => {
-      const offset = parseFloat(tile.style.getPropertyValue('--float-offset')) || (index * 0.6);
-      if (tile.matches(':hover')) {
-        tile.style.setProperty('--float-y', '0px');
-        tile.style.setProperty('--float-x', '0px');
-        return;
-      }
-      const tier = tile.dataset.tier || 'lower';
-      const amp = tier === 'upper' ? 4.5 : 2.5;
-      const ampX = tier === 'upper' ? 3 : 1.8;
-      const speed = tier === 'upper' ? 0.0008 : 0.00065;
-      const y = Math.sin(time * speed + offset) * amp;
-      const x = Math.cos(time * speed + offset) * ampX;
-      tile.style.setProperty('--float-y', `${y.toFixed(2)}px`);
-      tile.style.setProperty('--float-x', `${x.toFixed(2)}px`);
-    });
-    raf = requestAnimationFrame(animate);
-  };
-  const restart = () => {
-    if (!raf) {
-      raf = requestAnimationFrame(animate);
-    }
-  };
-  const stop = () => {
-    if (raf) {
-      cancelAnimationFrame(raf);
-      raf = null;
-    }
-  };
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      stop();
-    } else {
-      restart();
-    }
-  });
-  restart();
-}
-
-function setupOverlays() {
-  const focusableSelector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex=\"-1\"])';
-  const focusCleanupMap = new WeakMap();
-  const focusReturnMap = new WeakMap();
-  const burgerToggle = document.querySelector('.burger-toggle');
-  if (burgerToggle) {
-    burgerToggle.setAttribute('aria-expanded', 'false');
-  }
-
-  const getFocusable = (container) => Array.from(container.querySelectorAll(focusableSelector));
-
-  const trapFocus = (container) => {
-    const focusables = getFocusable(container);
-    if (!focusables.length) {
-      return () => {};
-    }
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const handler = (event) => {
-      if (event.key !== 'Tab') return;
-      if (focusables.length === 1) {
-        event.preventDefault();
-        first.focus();
-        return;
-      }
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    container.addEventListener('keydown', handler);
-    return () => container.removeEventListener('keydown', handler);
-  };
-
-  const openOverlay = (overlay, trigger) => {
-    if (!overlay || overlay.classList.contains('active')) return;
-    if (trigger && overlay) {
-      const rect = trigger.getBoundingClientRect();
-      const originX = ((rect.left + rect.width / 2) / window.innerWidth) * 100;
-      const originY = ((rect.top + rect.height / 2) / window.innerHeight) * 100;
-      overlay.style.setProperty('--origin-x', `${originX.toFixed(2)}%`);
-      overlay.style.setProperty('--origin-y', `${Math.min(originY, 60).toFixed(2)}%`);
-    }
-    overlay.classList.add('active');
-    overlay.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-    focusReturnMap.set(overlay, trigger || document.activeElement);
-    const cleanup = trapFocus(overlay);
-    focusCleanupMap.set(overlay, cleanup);
-    const focusables = getFocusable(overlay);
-    if (focusables.length) {
-      focusables[0].focus({ preventScroll: true });
-    } else {
-      overlay.setAttribute('tabindex', '-1');
-      overlay.focus({ preventScroll: true });
-    }
-  };
-
-  const closeOverlay = (overlay) => {
-    if (!overlay || !overlay.classList.contains('active')) return;
-    overlay.classList.remove('active');
-    overlay.setAttribute('aria-hidden', 'true');
-    const cleanup = focusCleanupMap.get(overlay);
-    if (cleanup) cleanup();
-    focusCleanupMap.delete(overlay);
-    const returnTarget = focusReturnMap.get(overlay);
-    focusReturnMap.delete(overlay);
-    if (!document.querySelector('.project-overlay.active, .burger-menu-overlay.active')) {
-      document.body.style.overflow = '';
-    }
-    if (returnTarget && typeof returnTarget.focus === 'function') {
-      returnTarget.focus({ preventScroll: true });
-    }
-  };
-
-  window.toggleBurgerMenu = function () {
-    const overlay = document.getElementById('burger-menu');
-    if (overlay) {
-      if (overlay.classList.contains('active')) {
-        closeOverlay(overlay);
-        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
-      } else {
-        openOverlay(overlay, burgerToggle);
-        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'true');
-      }
-    }
-  };
-
-  document.querySelectorAll('[data-type=\"overlay\"]').forEach((trigger) => {
-    trigger.addEventListener('click', (event) => {
-      event.preventDefault();
-      const overlayId = trigger.getAttribute('data-overlay-id');
-      const overlay = document.getElementById(`overlay-${overlayId}`);
-      if (overlay) {
-        openOverlay(overlay, trigger);
-      }
-    });
-  });
-
-  document.querySelectorAll('[data-close-overlay]').forEach((closer) => {
-    closer.addEventListener('click', () => {
-      const overlay = closer.closest('.project-overlay');
-      if (overlay) {
-        closeOverlay(overlay);
-      }
-    });
-  });
-
-  document.querySelectorAll('.project-overlay, .burger-menu-overlay').forEach((overlay) => {
-    overlay.addEventListener('pointerdown', (event) => {
-      if (overlay.classList.contains('project-overlay')) {
-        if (event.target.classList.contains('overlay-backdrop') || event.target === overlay) {
-          closeOverlay(overlay);
-        }
-        return;
-      }
-      if (event.target === overlay) {
-        closeOverlay(overlay);
-        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
-      }
-    });
-  });
-
-  const burgerMenu = document.getElementById('burger-menu');
-  if (burgerMenu) {
-    burgerMenu.querySelectorAll('a').forEach((link) => {
-      link.addEventListener('click', () => {
-        closeOverlay(burgerMenu);
-        if (burgerToggle) burgerToggle.setAttribute('aria-expanded', 'false');
-      });
-    });
-  }
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      document.querySelectorAll('.project-overlay.active, .burger-menu-overlay.active').forEach((overlay) => {
-        closeOverlay(overlay);
-        if (overlay.id === 'burger-menu' && burgerToggle) {
-          burgerToggle.setAttribute('aria-expanded', 'false');
-        }
-      });
-    }
-  });
-}
-
-function setupNewsletter() {
-  const form = document.querySelector('[data-newsletter-form]');
-  if (!form) return;
-  const status = form.querySelector('.form-status');
-  const body = document.body;
-  const mode = body.dataset.newsletterMode || 'local';
-  const providerUrl = body.dataset.newsletterUrl || '';
-  const setStatus = (message, state) => {
-    if (!status) return;
-    status.textContent = message;
-    if (state) {
-      status.dataset.state = state;
-    } else {
-      status.removeAttribute('data-state');
-    }
-  };
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (mode !== 'local' && !providerUrl) {
-      setStatus('Newsletter endpoint is not configured.', 'error');
-      return;
-    }
+  function setupNewsletter() {{
+    const form = document.querySelector('[data-newsletter-form]');
+    if (!form) return;
+    
+    const status = form.querySelector('.form-status');
     const emailInput = form.querySelector('input[name="email"]');
-    const email = emailInput ? emailInput.value.trim() : '';
-    if (!email) {
-      setStatus('Please enter a valid email.', 'error');
-      return;
-    }
-    const companyInput = form.querySelector('input[name="company"]');
-    const company = companyInput ? companyInput.value.trim() : '';
-    const endpoint = mode === 'local' || !providerUrl ? form.getAttribute('action') : providerUrl;
-    if (!endpoint) {
-      setStatus('Newsletter endpoint is not configured.', 'error');
-      return;
-    }
-    setStatus('Submitting...', 'pending');
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ email, company })
-      });
-      const payload = await response.json().catch(() => null);
-      const ok = response.ok && (payload === null || typeof payload.ok === 'undefined' || payload.ok);
-      if (ok) {
-        setStatus('Thanks for subscribing.', 'success');
-        form.reset();
-      } else {
-        setStatus((payload && payload.error) || 'Subscription failed. Please try again.', 'error');
-      }
-    } catch (error) {
-      setStatus('Subscription failed. Please try again.', 'error');
-    }
-  });
-}
+    const storageKey = 'patrick_newsletter_draft';
 
-function setupContactForm() {
-  const form = document.querySelector('[data-contact-form]');
-  if (!form) return;
-  const status = form.querySelector('.form-status');
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
+    // Restore draft
+    const saved = localStorage.getItem(storageKey);
+    if (saved && emailInput) emailInput.value = saved;
+
+    // Save draft
+    if (emailInput) {{
+      emailInput.addEventListener('input', () => {{
+        localStorage.setItem(storageKey, emailInput.value);
+      }});
+    }}
+
+    form.addEventListener('submit', async (event) => {{
+      event.preventDefault();
+      
+      const email = emailInput ? emailInput.value.trim() : '';
+      if (!email) {{
+        status.textContent = 'Please enter a valid email.';
+        return;
+      }}
+
+      status.textContent = 'Submitting...';
+      try {{
+        const response = await fetch(form.getAttribute('action'), {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
+          body: new URLSearchParams({{ email, company: form.querySelector('input[name="company"]')?.value || '' }})
+        }});
+        
+        const payload = await response.json().catch(() => ({{}}));
+        
+        if (response.ok && payload.ok) {{
+          status.textContent = 'Thanks for subscribing.';
+          form.reset();
+          localStorage.removeItem(storageKey);
+          const fallback = form.querySelector('.mailto-fallback');
+          if (fallback) fallback.remove();
+        }} else {{
+          throw new Error(payload.error || 'Subscription failed');
+        }}
+      }} catch (error) {{
+        status.textContent = 'Connection failed. Please use the fallback button below.';
+        console.error(error);
+        createMailtoFallback('patrick.schimpl@univie.ac.at', 'Newsletter Subscription', `Please subscribe me: ${{email}}`, form);
+      }}
+    }});
+  }}
+
+  function setupContact() {{
+    const form = document.querySelector('[data-contact-form]');
+    if (!form) return;
+    
+    const status = form.querySelector('.form-status');
     const nameInput = form.querySelector('input[name="name"]');
     const emailInput = form.querySelector('input[name="email"]');
     const messageInput = form.querySelector('textarea[name="message"]');
-    const companyInput = form.querySelector('input[name="company"]');
-    const name = nameInput ? nameInput.value.trim() : '';
-    const email = emailInput ? emailInput.value.trim() : '';
-    const message = messageInput ? messageInput.value.trim() : '';
-    const company = companyInput ? companyInput.value.trim() : '';
-    if (!name || !email || !message) {
-      status.textContent = 'Please complete all required fields.';
-      return;
-    }
-    const endpoint = form.getAttribute('action');
-    if (!endpoint) {
-      status.textContent = 'Contact endpoint is not configured.';
-      return;
-    }
-    status.textContent = 'Sending...';
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ name, email, message, company })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (response.ok && payload.ok) {
-        status.textContent = 'Message sent. Thank you.';
-        form.reset();
-      } else {
-        status.textContent = payload.error || 'Message failed. Please try again.';
-      }
-    } catch (error) {
-      status.textContent = 'Message failed. Please try again.';
-    }
-  });
-}
+    const storageKey = 'patrick_contact_draft';
 
+    // Restore draft
+    try {{
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '{{}}');
+      if (saved.name && nameInput) nameInput.value = saved.name;
+      if (saved.email && emailInput) emailInput.value = saved.email;
+      if (saved.message && messageInput) messageInput.value = saved.message;
+    }} catch (e) {{}}
 
-function setupSiteNotice() {
-  const body = document.body;
-  const noticeText = body.dataset.notice;
-  if (!noticeText) return;
+    // Save draft
+    const save = () => {{
+      localStorage.setItem(storageKey, JSON.stringify({{
+        name: nameInput?.value || '',
+        email: emailInput?.value || '',
+        message: messageInput?.value || ''
+      }}));
+    }};
+    
+    [nameInput, emailInput, messageInput].forEach(el => el?.addEventListener('input', save));
 
-  const banner = document.createElement('div');
-  banner.className = 'site-notice-banner';
-  banner.style.cssText = 'background: #ffb84d; color: #000; padding: 10px; text-align: center; font-weight: bold; position: relative; z-index: 9999;';
-  banner.innerHTML = `<span>🚧 ${noticeText}</span><button onclick="this.parentElement.remove()" style="background:none; border:none; color:inherit; font:inherit; cursor:pointer; margin-left:1rem; font-size:1.2em;">&times;</button>`;
-  document.body.prepend(banner);
-}
+    form.addEventListener('submit', async (event) => {{
+      event.preventDefault();
+      
+      const name = nameInput ? nameInput.value.trim() : '';
+      const email = emailInput ? emailInput.value.trim() : '';
+      const message = messageInput ? messageInput.value.trim() : '';
+      const company = form.querySelector('input[name="company"]')?.value || '';
+      
+      if (!name || !email || !message) {{
+        status.textContent = 'Please complete all required fields.';
+        return;
+      }}
+      
+      status.textContent = 'Sending...';
+      try {{
+        const response = await fetch(form.getAttribute('action'), {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
+          body: new URLSearchParams({{ name, email, message, company }})
+        }});
+        
+        const payload = await response.json().catch(() => ({{}}));
+        
+        if (response.ok && payload.ok) {{
+          status.textContent = 'Message sent. Thank you.';
+          form.reset();
+          localStorage.removeItem(storageKey);
+          const fallback = form.querySelector('.mailto-fallback');
+          if (fallback) fallback.remove();
+        }} else {{
+          throw new Error(payload.error || 'Message failed');
+        }}
+      }} catch (error) {{
+        status.textContent = 'Connection failed. Please use the fallback button below.';
+        console.error(error);
+        const body = `Name: ${{name}}\\nEmail: ${{email}}\\n\\nMessage:\\n${{message}}`;
+        createMailtoFallback('patrick.schimpl@univie.ac.at', 'Website Contact Form', body, form);
+      }}
+    }});
+  }}
 
-function setupRhizome() {
-  const container = document.querySelector('.rhizome-container');
-  if (!container) return;
-  const bioBtn = document.getElementById('bio-theme-btn');
-  const technoBtn = document.getElementById('techno-theme-btn');
-  
-  if (bioBtn && technoBtn) {
-    bioBtn.addEventListener('click', () => {
-        container.classList.remove('theme-techno');
-        container.classList.add('theme-bio');
-        bioBtn.classList.add('active');
-        technoBtn.classList.remove('active');
-    });
-    technoBtn.addEventListener('click', () => {
-        container.classList.remove('theme-bio');
-        container.classList.add('theme-techno');
-        technoBtn.classList.add('active');
-        bioBtn.classList.remove('active');
-    });
-  }
-}
-
-window.addEventListener('DOMContentLoaded', () => {
-  setupSiteNotice();
-  revealOnScroll();
-  setupScrollReveal();
-  setupTileBackgrounds();
-  setupTileTilt();
-  setupTileFloat();
-  setupOverlays();
-  smoothScroll();
+  const storedTheme = localStorage.getItem(themeKey) || 'dark';
+  setTheme(storedTheme);
+  if (themeToggle) {{
+    themeToggle.addEventListener('click', () => {{
+      const current = document.documentElement.getAttribute('data-theme');
+      setTheme(current === 'dark' ? 'light' : 'dark');
+    }});
+  }}
+  setupIntro();
   setupNewsletter();
-  setupContactForm();
-  setupRhizome();
-});
-""".lstrip()
-
-
-def _render_archive_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path, hero_heading: str, hero_body: str, sections_html: str, overview_html: str, page_body_html: str) -> str:
-    """Render archive layout with dual-sidebar structure."""
-    return f"""
-      <section class="archive-layout">
-        <aside class="archive-sidebar-left">
-          <nav class="archive-nav">
-            <h3>The Index</h3>
-            <ul>
-              <li><a href="#overview">Overview</a></li>
-              <li><a href="#research">Research</a></li>
-              <li><a href="#projects">Projects</a></li>
-              <li><a href="#publications">Publications</a></li>
-            </ul>
-          </nav>
-        </aside>
-        <main class="archive-main">
-          <header class="archive-header">
-            <h1>{_escape(hero_heading)}</h1>
-            {hero_body}
-          </header>
-          {overview_html}
-          {sections_html}
-          {page_body_html}
-        </main>
-        <aside class="archive-sidebar-right">
-          <div class="archive-metadata">
-            <h3>Citations</h3>
-            <p>Quick reference metadata appears here.</p>
-          </div>
-        </aside>
-      </section>
+  setupContact();
+</script>
 """
 
 
-def _render_mescia_landing(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    hero_title = _escape(site.get("site_name", "Mescia"))
-    tagline = _escape(site.get("site_tagline", ""))
-    
-    # Generate navigation zones data
-    zones_html = ""
-    for slug, page in pages.items():
-        if slug == "": continue
-        title = _escape(page.get("title", slug.title()))
-        url = _escape(_rel_page_link(current_path, slug))
-        # Data attributes for the JS to pick up
-        zones_html += f'<a href="{url}" class="landing-zone" data-label="{title}"><span class="zone-label">{title}</span></a>'
-        
-    return f"""
-      <section class="mescia-landing">
-        <canvas id="mescia-canvas"></canvas>
-        <div class="mescia-overlay">
-            <div class="landing-zones-container">
-                {zones_html}
-            </div>
-            <div class="main-entrance">
-                <h1>{hero_title}</h1>
-                <p>{tagline}</p>
-                <a href="#research" class="enter-button" id="enter-site-btn">Enter</a>
-            </div>
-        </div>
-      </section>
-"""
+def render_hub(site, pages, links, digests):
+    current_slug = "/"
+    nav_html = build_nav(pages, current_slug)
+    hub_sections = pages["/"]["sections"]
+    hero_section = next((section for section in hub_sections if section.get("kind") == "hero"), hub_sections[0] if hub_sections else {})
+    hero_body = _render_markdown(_read_block(hero_section.get("source_md", "")))
+    hero_cta = ""
+    hero_cta_text = hero_section.get("cta_text") or ""
+    hero_cta_url = _resolve_internal_url(hero_section.get("cta_url", ""), current_slug)
+    if hero_cta_text and hero_cta_url:
+        hero_cta = f"<a class=\"cta\" href=\"{_escape(hero_cta_url)}\">{_escape(hero_cta_text)}</a>"
 
+    hero_img_html = ""
+    image_ref = _resolve_image_ref(hero_section.get("hero_image", ""), current_slug)
+    if image_ref:
+        hero_img_html = f"<div class=\"media\"><img src=\"{image_ref}\" alt=\"Hero visual\" /></div>"
 
+    layout_variant = (site.get("layout_variant") or "profile").strip().lower()
+    show_digest_home = str(site.get("show_digest_home", "")).strip().lower() in {"1", "true", "yes", "on"}
+    intro_overlay = str(site.get("intro_overlay", "true")).strip().lower() in {"1", "true", "yes", "on"}
 
+    tiles_sections = [section for section in hub_sections if section.get("kind") == "research_tiles"]
+    tiles_html = "".join(render_research_tiles(section, current_slug) for section in tiles_sections)
 
-def _render_swarm_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    hero_title = _escape(site.get("site_name", "Swarm"))
-    tagline = _escape(site.get("site_tagline", ""))
-    
-    # Generate content nodes for the swarm layout
-    nodes_html = []
-    
-    # Main content node
-    nodes_html.append(f"""
-    <div class="swarm-node main-node" style="top: 20%; left: 30%; width: 40%;">
-        <h1>{hero_title}</h1>
-        <p class="subtitle">{tagline}</p>
-        <p>{_escape(site.get("contact_blurb", ""))}</p>
-    </div>
-    """)
-    
-    # Add nodes for each page
-    node_positions = [
-        {"top": "10%", "left": "10%"},
-        {"top": "70%", "left": "15%"},
-        {"top": "40%", "left": "70%"},
-        {"top": "75%", "left": "65%"},
-        {"top": "15%", "left": "60%"}
+    sections = [
+        section
+        for section in hub_sections
+        if section is not hero_section and section.get("kind") != "research_tiles"
     ]
-    
-    for i, (slug, page) in enumerate(pages.items()):
-        if slug == "": continue  # Skip home page as it's the main node
-        if i >= len(node_positions): break  # Don't exceed available positions
-        
-        position = node_positions[i]
-        title = _escape(page.get("title", slug.title()))
-        href = _escape(_rel_page_link(current_path, slug))
-        
-        nodes_html.append(f"""
-        <a href="{href}" class="swarm-node page-node" style="top: {position['top']}; left: {position['left']};">
-            <h3>{title}</h3>
-        </a>
-        """)
-    
-    # Add "Live Pulse" section
-    nodes_html.append(f"""
-    <div class="swarm-node pulse-node" style="top: 60%; left: 40%;">
-        <h3>Live Pulse</h3>
-        <div class="pulse-content">
-            <p>Real-time activity feed from agent logs</p>
-            <div class="activity-log">
-                <div class="log-entry">New research thread initiated</div>
-                <div class="log-entry">Data sync completed</div>
-                <div class="log-entry">Model training in progress</div>
-            </div>
-        </div>
+    if not show_digest_home:
+        sections = [section for section in sections if section.get("kind") != "digest_list"]
+    digest_limit = 5 if show_digest_home else 0
+    renderable_sections = sections
+    if layout_variant == "profile":
+        renderable_sections = [section for section in sections if section.get("kind") != "profile_card"]
+    sections_html = render_sections(
+        renderable_sections,
+        current_slug,
+        digests=digests,
+        digest_limit=digest_limit if digest_limit else None,
+        links=links,
+    )
+
+    profile_cards = [section for section in sections if section.get("kind") == "profile_card"]
+    profile_cards_html = ""
+    if profile_cards:
+        cards = [
+            f"<div class=\"card profile-card\"><h3>{_escape(section.get('title', ''))}</h3>"
+            f"{_render_markdown(_read_block(section.get('source_md', '')))}</div>"
+            for section in profile_cards
+        ]
+        profile_cards_html = f"<section class=\"fade-in\"><h2>Profile</h2><div class=\"profile-grid\">{''.join(cards)}</div></section>"
+
+    if layout_variant == "linkhub":
+        body_html = f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(site.get('intro_title', site.get('site_title', '')))} <span class=\"accent\">{_escape(site.get('intro_subtitle', ''))}</span></h1>
+      {hero_body}
+      <div style=\"margin-top: 18px;\">{hero_cta}</div>
     </div>
-    """)
-    
+    {hero_img_html}
+  </div>
+  {tiles_html}
+  {sections_html}
+  {render_footer(site)}
+</div>
+"""
+    elif layout_variant == "standard":
+        body_html = f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(site.get('intro_title', site.get('site_title', '')))} <span class=\"accent\">{_escape(site.get('intro_subtitle', ''))}</span></h1>
+      {hero_body}
+      <div style=\"margin-top: 18px;\">{hero_cta}</div>
+    </div>
+    {hero_img_html}
+  </div>
+  {tiles_html}
+  {sections_html}
+  {render_footer(site)}
+</div>
+"""
+    else:
+        body_html = f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(site.get('intro_title', site.get('site_title', '')))} <span class=\"accent\">{_escape(site.get('intro_subtitle', ''))}</span></h1>
+      {hero_body}
+      <div style=\"margin-top: 18px;\">{hero_cta}</div>
+    </div>
+    {hero_img_html}
+  </div>
+  {tiles_html}
+  {profile_cards_html}
+  {sections_html}
+  {render_footer(site)}
+</div>
+"""
+
+    overlay_html = ""
+    if intro_overlay:
+        overlay_html = f"""
+<div class=\"intro-overlay\" id=\"intro-overlay\">
+  <div class=\"intro-card\">
+    <div style=\"text-transform: uppercase; letter-spacing: 3px;\">{_escape(site.get('site_title', ''))}</div>
+    <h2 style=\"margin: 16px 0;\">{_escape(site.get('intro_title', ''))}</h2>
+    <p>Intro overlay with animated graphic. Auto-dismisses after a moment.</p>
+    <div class=\"intro-actions\">
+      <button class=\"cta\" id=\"intro-enter\">Enter</button>
+      <button class=\"intro-skip\" id=\"intro-skip\">Skip</button>
+    </div>
+  </div>
+</div>
+"""
+
+    parts = [
+        render_head(site, pages["/"]["title"], "/"),
+        "\n<body>\n<div class=\"noise\"></div>\n",
+        render_header(site, nav_html),
+        body_html,
+        overlay_html,
+        render_scripts(),
+        "\n</body>\n</html>\n"
+    ]
+    return "".join(parts)
+
+
+def render_page(site, pages, slug, links, posts, digests):
+    nav_html = build_nav(pages, slug)
+    page = pages[slug]
+    sections = list(page["sections"])
+    hero_section = next((section for section in sections if section.get("kind") == "hero"), sections[0] if sections else {})
+    hero_body = _render_markdown(_read_block(hero_section.get("source_md", "")))
+    hero_image = ""
+    image_ref = _resolve_image_ref(hero_section.get("hero_image", ""), slug)
+    if image_ref:
+        hero_image = f"<div class=\"media\"><img src=\"{image_ref}\" alt=\"{_escape(page['title'])} visual\" /></div>"
+    hero_cta = ""
+    hero_cta_text = hero_section.get("cta_text") or ""
+    hero_cta_url = _resolve_internal_url(hero_section.get("cta_url", ""), slug)
+    if hero_cta_text and hero_cta_url:
+        hero_cta = f"<div style=\"margin-top: 16px;\"><a class=\"cta\" href=\"{_escape(hero_cta_url)}\">{_escape(hero_cta_text)}</a></div>"
+
+    content_sections = [section for section in sections if section is not hero_section]
+    sections_html = render_sections(content_sections, slug, digests=digests, links=links)
+
+    extras = ""
+    if slug == "/blog/":
+        post_cards = [
+            f"<div class=\"card\"><div class=\"accent\">{_escape(post['date'])}</div>"
+            f"<h3>{_escape(post['title'])}</h3>"
+            f"<a href=\"{_escape(_rel_link(slug, f'/blog/{post['slug']}/'))}\">Read</a></div>"
+            for post in posts
+        ]
+        extras = f"""
+<section class=\"fade-in\">
+  <h2>Posts</h2>
+  <div class=\"grid\">{''.join(post_cards)}</div>
+</section>
+"""
+
+    parts = [
+        render_head(site, page["title"], slug),
+        "\n<body>\n<div class=\"noise\"></div>\n",
+        render_header(site, nav_html),
+        f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(page['title'])}</h1>
+      {hero_body}
+      {hero_cta}
+    </div>
+    {hero_image}
+  </div>
+  {sections_html}
+  {extras}
+  {render_footer(site)}
+</div>
+{render_scripts()}
+</body>
+</html>
+"""
+    ]
+    return "".join(parts)
+
+
+def render_blog_post(site, pages, post):
+    current_slug = f"/blog/{post['slug']}/"
+    nav_html = build_nav(pages, current_slug)
+    body_html = _render_markdown(post.get("body", ""))
+    back_link = _rel_link(current_slug, "/blog/")
+    parts = [
+        render_head(site, post["title"], current_slug),
+        "\n<body>\n<div class=\"noise\"></div>\n",
+        render_header(site, nav_html),
+        f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(post['title'])}</h1>
+      <p>{_escape(post['date'])}</p>
+      <div style=\"margin-top: 16px;\"><a class=\"cta\" href=\"{_escape(back_link)}\">Back to blog</a></div>
+    </div>
+  </div>
+  <section class=\"fade-in\">
+    {body_html}
+  </section>
+  {render_footer(site)}
+</div>
+{render_scripts()}
+</body>
+</html>
+"""
+    ]
+    return "".join(parts)
+
+
+def render_digest_page(site, pages, digest):
+    current_slug = f"/digest/{digest['slug']}/"
+    nav_html = build_nav(pages, current_slug)
+    body_html = _render_markdown(_read_block(digest.get("source_md", "")))
+    back_link = _rel_link(current_slug, "/digest/")
+    parts = [
+        render_head(site, digest["title"], current_slug),
+        "\n<body>\n<div class=\"noise\"></div>\n",
+        render_header(site, nav_html),
+        f"""
+<div class=\"frame\">
+  <div class=\"hero fade-in\">
+    <div>
+      <h1>{_escape(digest['title'])}</h1>
+      <p>{_escape(digest['date'])}</p>
+      <div style=\"margin-top: 16px;\"><a class=\"cta\" href=\"{_escape(back_link)}\">Back to digest</a></div>
+    </div>
+  </div>
+  <section class=\"fade-in\">
+    {body_html}
+  </section>
+  {render_footer(site)}
+</div>
+{render_scripts()}
+</body>
+</html>
+"""
+    ]
+    return "".join(parts)
+
+
+def render_splash(site):
+    root_href = _rel_link("/splash/", "/")
     return f"""
-    <section class="swarm-layout">
-        <div class="swarm-canvas">
-            <div class="swarm-grid"></div>
-            {''.join(nodes_html)}
-        </div>
-    </section>
-    """
-
-
-def _render_rhizome_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    hero_title = _escape(site.get("site_name", "Rhizome"))
-    tagline = _escape(site.get("site_tagline", ""))
-    
-    # Generate content blocks for the rhizome layout
-    blocks_html = []
-    
-    # Main content block
-    blocks_html.append(f"""
-    <div class="rhizome-block main-block">
-        <h1>{hero_title}</h1>
-        <p class="subtitle">{tagline}</p>
-        <p>{_escape(site.get("contact_blurb", ""))}</p>
-    </div>
-    """)
-    
-    # Add blocks for each page
-    for slug, page in list(pages.items())[:4]:  # Limit to first 4 pages
-        if slug == "": continue  # Skip home page as it's the main block
-        title = _escape(page.get("title", slug.title()))
-        href = _escape(_rel_page_link(current_path, slug))
-        
-        blocks_html.append(f"""
-        <a href="{href}" class="rhizome-block page-block">
-            <h3>{title}</h3>
-        </a>
-        """)
-    
-    # Add "Symbiosis Mode" toggle
-    blocks_html.append(f"""
-    <div class="rhizome-block toggle-block">
-        <h3>Symbiosis Mode</h3>
-        <div class="theme-toggle">
-            <button id="bio-theme-btn" class="theme-btn">Bio</button>
-            <button id="techno-theme-btn" class="theme-btn">Techno</button>
-        </div>
-    </div>
-    """)
-    
-    # Generate SVG connections
-    svg_connections = """
-    <svg class="rhizome-connections" xmlns="http://www.w3.org/2000/svg">
-        <path d="M 200 100 Q 300 50 400 100" stroke="var(--rhizome-accent)" fill="none" stroke-width="2" />
-        <path d="M 200 100 Q 150 200 100 300" stroke="var(--rhizome-accent)" fill="none" stroke-width="2" />
-        <path d="M 200 100 Q 350 250 500 300" stroke="var(--rhizome-accent)" fill="none" stroke-width="2" />
-        <path d="M 100 300 Q 300 350 500 300" stroke="var(--rhizome-accent)" fill="none" stroke-width="2" />
-    </svg>
-    """
-    
-    return f"""
-    <section class="rhizome-layout">
-        <div class="rhizome-container">
-            {svg_connections}
-            <div class="rhizome-grid">
-                {''.join(blocks_html)}
-            </div>
-        </div>
-    </section>
-    """
-
-
-def _render_sentient_layout(site: dict[str, str], pages: dict[str, dict[str, object]], current_path: Path) -> str:
-    """Render a cybernetic terminal aesthetic layout with terminal-like interface elements."""
-    hero_title = _escape(site.get("site_name", "Sentient System"))
-    tagline = _escape(site.get("site_tagline", ""))
-    
-    # Generate navigation for the terminal interface
-    nav_items = []
-    for slug in ["", "about", "research", "projects", "contact"]:  # Using standard navigation slugs
-        if slug not in pages:
-            continue
-        title = _escape(pages[slug]["title"])
-        href = _escape(_rel_page_link(current_path, slug))
-        active = "active" if slug == "" else ""  # Assuming home page is active
-        nav_items.append(f'<a class="terminal-nav-item {active}" href="{href}">[{title}]</a>')
-    
-    # Generate terminal-style content
-    terminal_content = f"""
-    <div class="terminal-header">
-        <div class="terminal-controls">
-            <span class="control-btn close"></span>
-            <span class="control-btn minimize"></span>
-            <span class="control-btn maximize"></span>
-        </div>
-        <div class="terminal-title">system@sentient:~$ {hero_title}</div>
-    </div>
-    <div class="terminal-body">
-        <div class="terminal-prompt">
-            <span class="prompt-user">user@sentient</span>
-            <span class="prompt-symbol">$</span>
-            <span class="prompt-command">init_session</span>
-        </div>
-        <div class="terminal-output">
-            <div class="terminal-output-line">Initializing sentient system...</div>
-            <div class="terminal-output-line">System status: <span class="status-active">ACTIVE</span></div>
-            <div class="terminal-output-line">Neural pathways: <span class="status-active">ONLINE</span></div>
-            <div class="terminal-output-line">Cognitive modules: <span class="status-active">READY</span></div>
-        </div>
-        
-        <div class="terminal-prompt">
-            <span class="prompt-user">user@sentient</span>
-            <span class="prompt-symbol">$</span>
-            <span class="prompt-command">display_info</span>
-        </div>
-        <div class="terminal-output">
-            <div class="terminal-header-block">
-                <h1 class="terminal-title-main">{hero_title}</h1>
-                <p class="terminal-subtitle">{tagline}</p>
-                <p class="terminal-blurb">{_escape(site.get("contact_blurb", ""))}</p>
-            </div>
-        </div>
-        
-        <div class="terminal-prompt">
-            <span class="prompt-user">user@sentient</span>
-            <span class="prompt-symbol">$</span>
-            <span class="prompt-command">show_modules</span>
-        </div>
-        <div class="terminal-output">
-            <div class="terminal-modules">
-                <div class="terminal-module">
-                    <div class="module-header">[Navigation]</div>
-                    <div class="module-content">
-                        {''.join(nav_items)}
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="terminal-prompt">
-            <span class="prompt-user">user@sentient</span>
-            <span class="prompt-symbol">$</span>
-            <span class="prompt-command">show_overview</span>
-        </div>
-        <div class="terminal-output">
-            <div class="terminal-overview">
-                {_render_home_overview(pages, current_path)}
-            </div>
-        </div>
-        
-        <div class="terminal-prompt terminal-prompt-ready">
-            <span class="prompt-user">user@sentient</span>
-            <span class="prompt-symbol">$</span>
-            <span class="prompt-command" id="terminal-cursor">|</span>
-        </div>
-    </div>
-    """
-    
-    return f"""
-    <section class="sentient-layout">
-        <div class="terminal-container">
-            {terminal_content}
-        </div>
-    </section>
-    """
-def _build_placeholder_svg(label: str) -> str:
-    safe_label = _escape(label)
-    return f"""<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 400\" role=\"img\" aria-label=\"{safe_label}\">
-  <defs>
-    <linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">
-      <stop offset=\"0%\" stop-color=\"#6b0f1a\" stop-opacity=\"0.2\" />
-      <stop offset=\"100%\" stop-color=\"#e0b15a\" stop-opacity=\"0.3\" />
-    </linearGradient>
-  </defs>
-  <rect width=\"600\" height=\"400\" fill=\"#f4ecea\" />
-  <rect x=\"40\" y=\"40\" width=\"520\" height=\"320\" fill=\"url(#g)\" rx=\"26\" />
-  <circle cx=\"470\" cy=\"130\" r=\"70\" fill=\"#6b0f1a\" fill-opacity=\"0.16\" />
-  <rect x=\"120\" y=\"230\" width=\"240\" height=\"18\" rx=\"9\" fill=\"#6b0f1a\" fill-opacity=\"0.25\" />
-  <rect x=\"120\" y=\"260\" width=\"180\" height=\"12\" rx=\"6\" fill=\"#0f0f0f\" fill-opacity=\"0.2\" />
-  <text x=\"120\" y=\"205\" fill=\"#3e0a11\" font-family=\"Georgia, serif\" font-size=\"22\">{safe_label}</text>
-</svg>
+<!doctype html>
+<html lang=\"en\" data-theme=\"dark\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <meta name=\"description\" content=\"{site.get('meta_description', '')}\" />
+  <title>{site['site_title']} | Splash</title>
+  <style>
+    :root {{
+      --accent: {site['accent']};
+      --bg: {site['bg_dark']};
+      --text: {site['text_light']};
+    }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, #15151b 0%, #0b0b0c 50%, #050506 100%);
+      color: var(--text);
+      font-family: "Cormorant Garamond", "Garamond", "Georgia", serif;
+    }}
+    .orb {{
+      width: min(60vw, 360px);
+      height: min(60vw, 360px);
+      border-radius: 50%;
+      background: conic-gradient(from 30deg, rgba(107, 15, 26, 0.9), rgba(255, 255, 255, 0.05), rgba(107, 15, 26, 0.9));
+      animation: spin 10s linear infinite;
+      filter: blur(0.2px);
+      box-shadow: 0 0 60px rgba(107, 15, 26, 0.4);
+    }}
+    .content {{
+      position: absolute;
+      text-align: center;
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }}
+    .enter {{
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: inherit;
+      text-decoration: none;
+    }}
+    @keyframes spin {{
+      from {{ transform: rotate(0deg); }}
+      to {{ transform: rotate(360deg); }}
+    }}
+  </style>
+</head>
+<body>
+  <div class=\"orb\"></div>
+  <div class=\"content\">
+    <h1>{site['site_title']}</h1>
+    <div>{site['intro_subtitle']}</div>
+    <a class=\"enter\" href=\"{root_href}\">Enter</a>
+    <div style=\"margin-top: 12px; font-size: 0.9rem;\"><a href=\"{root_href}\">Skip</a></div>
+  </div>
+  <script>
+    setTimeout(() => {{ window.location.href = "{root_href}"; }}, 2500);
+  </script>
+</body>
+</html>
 """
 
 
-def _write_site_assets(site: dict[str, Any]) -> None:
-    CSS_DIR.mkdir(parents=True, exist_ok=True)
-    JS_DIR.mkdir(parents=True, exist_ok=True)
-    IMG_DIR.mkdir(parents=True, exist_ok=True)
-    (CSS_DIR / "style.css").write_text(_build_css(site), encoding="utf-8")
-    (JS_DIR / "main.js").write_text(_build_js(), encoding="utf-8")
-    
-    # Copy landing assets if they exist in content/assets, otherwise use defaults (which we'll define)
-    # Actually, simpler to just write them here directly or rely on the copy block below.
-    # The build script copies assets from CONTENT_DIR/assets usually?
-    # No, it copies from MEDIA_DIR (content/media) to IMG_DIR.
-    # It hardcodes style.css and main.js from strings in the script.
-    
-    # We will assume landing assets are placed in content/assets/css/landing.css and content/assets/js/landing.js
-    # and we need to copy them to SITE_DIR/assets
-    
-    # I should modify this to copy content/assets to site/assets if it exists.
-    src_assets = CONTENT_DIR / "assets"
-    if src_assets.exists():
-        for path in src_assets.rglob("*"):
-            if path.is_file():
-                rel = path.relative_to(src_assets)
-                dest = ASSETS_DIR / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                if not dest.exists(): # Don't overwrite generated files like style.css unless intended
-                    shutil.copy2(path, dest)
-
-    for name, label in PLACEHOLDER_IMAGES.items():
-        (IMG_DIR / name).write_text(_build_placeholder_svg(label), encoding="utf-8")
-    if MEDIA_DIR.exists():
-        for path in MEDIA_DIR.rglob("*"):
-            if path.is_dir():
-                continue
-            target = IMG_DIR / path.relative_to(MEDIA_DIR)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-
-
-def _write_subscribe_php() -> None:
+def write_subscribe_php():
     php = """<?php
 header('Content-Type: application/json');
 
@@ -2936,10 +1587,10 @@ fclose($handle);
 
 echo json_encode(['ok' => true]);
 """
-    (SITE_DIR / "subscribe.php").write_text(php, encoding="utf-8")
+    write_file(SITE_DIR / "subscribe.php", php)
 
 
-def _write_contact_php() -> None:
+def write_contact_php():
     php = """<?php
 header('Content-Type: application/json');
 
@@ -2968,16 +1619,9 @@ if ($name === '' || $email === '' || $message === '') {
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
   fail(400, 'invalid_email');
 }
-if (mb_strlen($message) < 10) {
-  fail(400, 'message_too_short');
-}
-if (mb_strlen($message) > 5000) {
+if (mb_strlen($message) > 4000) {
   fail(400, 'message_too_long');
 }
-
-// Sanitize for storage
-$name = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
-$message = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
 
 $dataDir = __DIR__ . '/data';
 if (!is_dir($dataDir)) {
@@ -3029,338 +1673,53 @@ fclose($handle);
 
 echo json_encode(['ok' => true]);
 """
-    (SITE_DIR / "contact.php").write_text(php, encoding="utf-8")
+    write_file(SITE_DIR / "contact.php", php)
 
 
-def _write_data_protection() -> None:
+def write_data_protection():
     data_dir = SITE_DIR / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     htaccess = """Require all denied
-<FilesMatch \\.(csv|json)$>
+<FilesMatch "\\.(csv|json)$">
   Require all denied
 </FilesMatch>
 """
-    (data_dir / ".htaccess").write_text(htaccess, encoding="utf-8")
+    write_file(data_dir / ".htaccess", htaccess)
 
 
-def _generate_rss(site: dict[str, Any], posts: list[dict[str, str]]) -> str:
-    domain = site.get("domain", "").rstrip("/")
-    site_name = _escape(site.get("site_name", ""))
-    
-    items = []
-    for post in posts:
-        pub_date = datetime.strptime(post['date'], "%Y-%m-%d").strftime("%a, %d %b %Y %H:%M:%S +0000")
-        link = f"{domain}/blog/{post['slug']}/"
-        items.append(f"""    <item>
-      <title>{_escape(post['title'])}</title>
-      <link>{link}</link>
-      <guid>{link}</guid>
-      <pubDate>{pub_date}</pubDate>
-      <description>{_escape(post.get('body', '')[:200])}...</description>
-    </item>""")
-    
-    return f"""<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
-<channel>
-  <title>{site_name}</title>
-  <link>{domain}</link>
-  <description>{_escape(site.get('meta_description', ''))}</description>
-  <language>en-us</language>
-{"\n".join(items)}
-</channel>
-</rss>"""
+def write_site():
+    site = read_site_config()
+    pages = read_control()
+    links = read_links()
+    posts = read_blog_posts()
+    digests = read_digests()
 
-
-def _generate_sitemap(site: dict[str, Any], pages: dict[str, Any], posts: list[dict[str, str]]) -> str:
-    domain = site.get("domain", "").rstrip("/")
-    now = datetime.now().strftime("%Y-%m-%d")
-    
-    urls = []
-    # Add pages
-    for slug in pages:
-        path = f"{slug}/" if slug else ""
-        urls.append(f"""  <url>
-    <loc>{domain}/{path}</loc>
-    <lastmod>{now}</lastmod>
-    <priority>0.8</priority>
-  </url>""")
-    
-    # Add posts
-    for post in posts:
-        urls.append(f"""  <url>
-    <loc>{domain}/blog/{post['slug']}/</loc>
-    <lastmod>{post['date']}</lastmod>
-    <priority>0.6</priority>
-  </url>""")
-        
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-{"\n".join(urls)}
-</urlset>"""
-
-
-def build_site() -> None:
-    pages = _read_control()
-    site = _read_site_config()
-    links = _read_links()
-    posts = _read_blog_posts()
-    digests = _read_digests()
-    meta_description = site.get("meta_description", "")
-    layout_variant = (site.get("layout_variant") or "standard").strip().lower()
-    if layout_variant not in {"standard", "linkhub", "profile", "mescia_landing", "archive", "swarm", "rhizome", "sentient"}:
-        layout_variant = "standard"
-    show_digest_home = str(site.get("show_digest_home", "")).strip().lower() in {"1", "true", "yes", "on"}
-
-    if SITE_DIR.exists():
-        shutil.rmtree(SITE_DIR)
     SITE_DIR.mkdir(parents=True, exist_ok=True)
-    _write_site_assets(site)
-    _write_subscribe_php()
-    _write_contact_php()
-    _write_data_protection()
-    
-    # BibTeX Automation
-    bib_path = CONTENT_DIR / "publications.bib"
-    if bib_path.exists():
-        import subprocess
-        print(f"📚 Found bibliography: {bib_path.name}")
-        parser_script = BASE_DIR / "tools" / "parse_bibtex.py"
-        output_md = BLOCKS_DIR / "publications.md"
-        try:
-            subprocess.run([sys.executable, str(parser_script), str(bib_path), str(output_md)], check=True)
-            print("   ✅ Generated publications.md")
-        except Exception as e:
-            print(f"   ❌ BibTeX parsing failed: {e}")
+    copy_assets()
+    write_subscribe_php()
+    write_contact_php()
+    write_data_protection()
 
-    # SEO & Syndication
-    if site.get("domain"):
-        (SITE_DIR / "rss.xml").write_text(_generate_rss(site, posts), encoding="utf-8")
-        (SITE_DIR / "sitemap.xml").write_text(_generate_sitemap(site, pages, posts), encoding="utf-8")
+    write_file(SITE_DIR / "index.html", render_hub(site, pages, links, digests))
+    write_file(SITE_DIR / "splash" / "index.html", render_splash(site))
 
-    for slug, page in sorted(pages.items(), key=lambda item: item[1].get("order", 0)):
-        current_path = _page_output_path(slug)
-        css_href = _rel_link(current_path, Path("assets/css/style.css"))
-        js_href = _rel_link(current_path, Path("assets/js/main.js"))
-        extra_css = ""
-        if slug == "" and layout_variant == "mescia_landing":
-            extra_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/landing.css")))}" />'
-        # Include extra CSS for new layout variants
-        if slug == "" and layout_variant in {"archive", "swarm", "rhizome", "sentient"}:
-            extra_css += f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/extra_layouts.css")))}" />'
-
-        header = _render_header(slug, pages, current_path, site)
-        footer = _render_footer(site, pages, current_path, links)
-        sections = list(page["sections"])
-        if slug == "" and not show_digest_home:
-            sections = [section for section in sections if section.get("kind") != "digest_list"]
-        hero = next((section for section in sections if section.get("kind") == "hero"), sections[0] if sections else {})
-        hero_heading = hero.get("title") or page["title"]
-        hero_body = _render_markdown(_read_block(hero.get("source_md", "")))
-        hero_cta_text = _escape(hero.get("cta_text", ""))
-        hero_cta_url = _resolve_cta_url(hero.get("cta_url", ""), pages, current_path)
-        hero_cta = ""
-        if hero_cta_text and hero_cta_url:
-            hero_cta = f"<a class=\"button\" href=\"{_escape(hero_cta_url)}\">{hero_cta_text}</a>"
-        hero_image_src = _resolve_image_src(hero.get("hero_image", ""), current_path)
-
-        content_sections = [section for section in sections if section is not hero]
-        sections_html = "".join(
-            _render_section(section, current_path, pages, digests)
-            for section in content_sections
-        )
-
-        newsletter_html = ""
-        if slug in {"", "contact", "digest"}:
-            newsletter_html = _render_newsletter_form(site, current_path)
-
-        overview_html = ""
-        if slug == "":
-            overview_html = _render_home_overview(pages, current_path)
-
-        blog_index_html = ""
-        if slug == "blog":
-            blog_index_html = _render_blog_index(posts, current_path)
-
-        digest_index_html = ""
-        if slug == "digest":
-            digest_index_html = _render_digest_index(digests, current_path)
-
-        contact_links_html = _render_links(links) if slug == "contact" else ""
-        page_body_inner = "".join([blog_index_html, digest_index_html, newsletter_html, contact_links_html]).strip()
-        page_body_html = ""
-        if page_body_inner:
-            page_body_html = f"""
-      <section class="page-body">
-        <div class="content-block reveal">
-          {page_body_inner}
-        </div>
-      </section>"""
-
-        if slug == "":
-            if layout_variant == "archive":
-                homepage_body = _render_archive_layout(site, pages, current_path, hero_heading, hero_body, sections_html, overview_html, page_body_html)
-            elif layout_variant == "linkhub":
-                homepage_body = f"""
-      <section class="linkhub">
-        <div class="linkhub-inner">
-          <p class="eyebrow">{_escape(site.get('site_name', 'Artificial Life Institute'))}</p>
-          <h1>{_escape(hero_heading)}</h1>
-          <p class="subtitle">{_escape(site.get('site_tagline', ''))}</p>
-          {_render_paragraphs(site.get('contact_blurb', ''))}
-          {_render_linkhub_links(links)}
-          {newsletter_html}
-        </div>
-      </section>
-"""
-            elif layout_variant == "mescia_landing":
-                homepage_body = _render_mescia_landing(site, pages, current_path)
-            elif layout_variant == "swarm":
-                homepage_body = _render_swarm_layout(site, pages, current_path)
-            elif layout_variant == "rhizome":
-                homepage_body = _render_rhizome_layout(site, pages, current_path)
-            elif layout_variant == "sentient":
-                homepage_body = _render_sentient_layout(site, pages, current_path)
-            elif layout_variant == "profile":
-                homepage_body = f"""
-      <section class="hero">
-        <div class="hero-orbit"></div>
-        <div class="hero-inner">
-          <div>
-            <p class="eyebrow">{_escape(site.get('site_name', 'Artificial Life Institute'))}</p>
-            <h1>{_escape(hero_heading)}</h1>
-            <p class="subtitle">{_escape(site.get('site_tagline', ''))}</p>
-            {hero_body}
-            <div class="hero-actions">{hero_cta}</div>
-          </div>
-          <div class="hero-art">
-            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
-            <h3>Institute profile</h3>
-            <p>{_escape(site.get('contact_blurb', ''))}</p>
-          </div>
-        </div>
-      </section>
-      <section class="profile-section">
-        <div class="profile-grid">
-          <div class="profile-card"><h3>Core questions</h3><p>Placeholder for the institute's core research questions.</p></div>
-          <div class="profile-card"><h3>Methods</h3><p>Placeholder for modeling, experimentation, and field integration.</p></div>
-          <div class="profile-card"><h3>Community</h3><p>Placeholder for seminars, visitors, and collaborations.</p></div>
-        </div>
-      </section>
-      <section class="profile-section">
-        <div class="content-block reveal">
-          <h2>Selected outputs</h2>
-          <ul class="outputs-list">
-            <li>Placeholder output: paper, dataset, or public demonstration.</li>
-            <li>Placeholder output: workshop, symposium, or lecture series.</li>
-            <li>Placeholder output: open-source tool or platform.</li>
-          </ul>
-          {newsletter_html}
-        </div>
-      </section>
-"""
-            else:
-                homepage_body = f"""
-      <section class="hero">
-        <div class="hero-orbit"></div>
-        <div class="hero-inner">
-          <div>
-            <p class="eyebrow">{_escape(site.get('site_name', 'Artificial Life Institute'))}</p>
-            <h1>{_escape(hero_heading)}</h1>
-            <p class="subtitle">{_escape(site.get('site_tagline', ''))}</p>
-            {hero_body}
-            <div class="hero-actions">{hero_cta}</div>
-          </div>
-          <div class="hero-art">
-            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
-            <h3>Dynamic systems, grounded experiments</h3>
-            <p>Placeholder for a concise, compelling institute statement.</p>
-            <div class="hero-metrics">
-              <div><span>Global</span>Active Research Network</div>
-              
-              
-            </div>
-          </div>
-        </div>
-      </section>
-      {overview_html}
-      {sections_html}
-      {page_body_html}
-"""
-        else:
-            homepage_body = f"""
-      <section class="hero">
-        <div class="hero-orbit"></div>
-        <div class="hero-inner">
-          <div>
-            <p class="eyebrow">{_escape(site.get('site_name', 'Artificial Life Institute'))}</p>
-            <h1>{_escape(hero_heading)}</h1>
-            <p class="subtitle">{_escape(site.get('site_tagline', ''))}</p>
-            {hero_body}
-            <div class="hero-actions">{hero_cta}</div>
-          </div>
-          <div class="hero-art">
-            <figure class="image-frame"><img src="{_escape(hero_image_src)}" alt="{_escape(hero_heading)} image" /></figure>
-            <h3>Dynamic systems, grounded experiments</h3>
-            <p>Placeholder for a concise, compelling institute statement.</p>
-            <div class="hero-metrics">
-              <div><span>Global</span>Active Research Network</div>
-              
-              
-            </div>
-          </div>
-        </div>
-      </section>
-      {overview_html}
-      {sections_html}
-      {page_body_html}
-"""
-
-        # Add search CSS
-        search_css = f'<link rel="stylesheet" href="{_escape(_rel_link(current_path, Path("assets/css/search.css")))}" />'
-        
-        # Search UI HTML
-        search_ui = f"""
-  <div class="search-container">
-    <div class="search-box">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="search-input" placeholder="Search..." autocomplete="off" />
-        <span class="search-shortcut">Ctrl+K</span>
-      </div>
-      <div id="search-results"></div>
-    </div>
-  </div>
-"""
-        
-        doc = f"""<!doctype html>
-<html lang=\"en\">
-{_render_head(page['title'], css_href, meta_description, extra_css=extra_css + search_css, site=site, page_url=site.get('domain', '') + ('/' if slug else ''), og_image=site.get('og_image', ''))}
-<body data-newsletter-mode="{_escape(site.get('newsletter_mode', 'local'))}" data-newsletter-url="{_escape(site.get('newsletter_provider_url', ''))}">
-  {search_ui}
-  <div class="page-shell">
-    {header}
-    <main>
-      {homepage_body}
-    </main>
-    {footer}
-  </div>
-  <script src="{_escape(js_href)}"></script>
-  {f'<script src="{_escape(_rel_link(current_path, Path("assets/js/landing.js")))}"></script>' if slug == "" and layout_variant == "mescia_landing" else ''}
-  {f'<script src="{_escape(_rel_link(current_path, Path("assets/js/optimize.js")))}"></script>' if slug == "" else ''}
-  <script src="{_escape(_rel_link(current_path, Path("assets/js/search.js")))}"></script>
-</body>
-</html>
-"""
-        output_path = SITE_DIR / current_path
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(doc, encoding="utf-8")
+    for slug in pages:
+        if slug == "/":
+            continue
+        if not slug.startswith("/") or not slug.endswith("/"):
+            raise ValueError(f"Page slug must start/end with '/': {slug}")
+        path = SITE_DIR / slug.strip("/") / "index.html"
+        write_file(path, render_page(site, pages, slug, links, posts, digests))
 
     for post in posts:
-        _render_blog_post(post, pages)
+        path = SITE_DIR / "blog" / post["slug"] / "index.html"
+        write_file(path, render_blog_post(site, pages, post))
 
     for digest in digests:
-        _render_digest_page(digest, pages, site, links)
+        path = SITE_DIR / "digest" / digest["slug"] / "index.html"
+        write_file(path, render_digest_page(site, pages, digest))
 
 
 if __name__ == "__main__":
-    build_site()
+    write_site()
+    print(f"[PATRICK] Build complete. Wrote site to {SITE_DIR}")

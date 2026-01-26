@@ -1,6 +1,17 @@
+:root {
+  --primary-bio-green: #1a3d2f;
+  --accent-bio-gold: #d4af37;
+  --bg-abyssal: #05110e;
+  --font-headers: 'Cinzel', serif;
+  --font-body: 'Cormorant Garamond', serif;
+  --font-code: 'JetBrains Mono', monospace;
+}
+
 body.layout-holobiontic {
   position: relative;
-  background: linear-gradient(180deg, rgba(233, 244, 236, 0.9) 0%, rgba(247, 251, 245, 0.9) 60%, rgba(233, 244, 236, 0.7) 100%);
+  background: linear-gradient(180deg, var(--bg-abyssal) 0%, #0a1f18 100%);
+  color: #e0e0e0;
+  font-family: var(--font-body);
   overflow-x: hidden;
 }
 
@@ -141,9 +152,26 @@ body.layout-holobiontic::after {
 }
 
 body.layout-holobiontic .content-section {
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(26, 61, 47, 0.4);
   backdrop-filter: blur(18px);
-  border: 1px solid rgba(28, 75, 58, 0.2);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+}
+
+.glass-tile {
+  background: rgba(26, 61, 47, 0.6);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.37),
+    inset 0 0 0 1px rgba(212, 175, 55, 0.1);
+  transform-style: preserve-3d;
+  transform: perspective(1000px);
+  transition: transform 0.3s ease;
+}
+
+.glass-tile:hover {
+  transform: perspective(1000px) translate3d(0, -5px, 10px);
 }
 
 body.layout-holobiontic .content-section::before {
@@ -157,18 +185,37 @@ body.layout-holobiontic .content-section::before {
 }
 
 @keyframes bio-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes bio-float {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(0, -18px, 0); }
+
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -18px, 0);
+  }
 }
 
 @keyframes bio-drift {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(-30px, 20px, 0); }
+
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(-30px, 20px, 0);
+  }
 }
 
 @media (max-width: 900px) {
@@ -189,6 +236,7 @@ body.layout-holobiontic .content-section::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .holobiontic-hero .hero-orbit,
   .bio-halo,
   .bio-threads,
