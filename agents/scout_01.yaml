@@ -1,0 +1,10 @@
+name: "Scout 01: SynBio"
+role: "Biological Architect"
+mission: "Scan for breakthrough papers in xenobiology, optogenetics, and living materials."
+search_queries:
+  - "luminescent plant architecture paper 2024..2026"
+  - "mycelium construction material strength analysis"
+  - "synthetic biology terraforming mars proposal"
+output_dir: "content/research"
+frequency: "daily"
+emoji: "🧬"

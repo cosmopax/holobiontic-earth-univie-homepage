@@ -1,0 +1,10 @@
+name: "Scout 02: Planetary Comp"
+role: "System Analyst"
+mission: "Monitor developments in planetary-scale sensing, digital twins, and ecological computing."
+search_queries:
+  - "planetary computer microsoft api updates"
+  - "digital twin earth esa paper"
+  - "biodiversity monitoring ai satellite"
+output_dir: "content/research"
+frequency: "daily"
+emoji: "🌍"

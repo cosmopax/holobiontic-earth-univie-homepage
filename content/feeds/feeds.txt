@@ -1,0 +1,5 @@
+# SynBio
+https://www.nature.com/subjects/synthetic-biology.rss
+# Planetary Computing / Environment
+https://www.sciencedaily.com/rss/earth_climate/environmental_science.xml
+https://phys.org/rss-feed/biology-news/
