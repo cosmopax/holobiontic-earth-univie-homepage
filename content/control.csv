@@ -3,3 +3,12 @@ home,/,Home,,hero,,0,active,,Read Manifesto,#manifesto
 manif,/,Manifesto,blocks/manifesto.md,section,main,1,active,,,
 proj,/,Research Projects,blocks/research_tiles.md,research_tiles,main,2,active,,,
 dig,/,Morning Briefing,,digest_list,main,3,active,,,
+
+res_hero,/research/,Research,blocks/research_page.md,hero,hero,0,active,,,
+res_list,/research/,Programs,./research.json,research_tiles,main,1,active,,,
+
+team_hero,/team/,The Assembly,blocks/team_page.md,hero,hero,0,active,,,
+team_list,/team/,Nodes,./team.json,profile_grid,main,1,active,,,
+
+pub_hero,/publications/,Publications,blocks/publications_page.md,hero,hero,0,active,,,
+pub_list,/publications/,Output,./publications.json,publication_list,main,1,active,,,

@@ -880,6 +880,13 @@ def render_digest_list(digests, current_slug: str, limit=None):
 
 def parse_research_tiles(source_md: str):
     raw = _read_block(source_md)
+    # Detect JSON
+    if raw.strip().startswith("["):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass # Fallback to pipe parsing if fails
+            
     tiles = []
     for line in raw.splitlines():
         stripped = line.strip()
@@ -908,13 +915,19 @@ def render_research_tiles(section, current_slug: str):
         return ""
     cards = []
     for tile in tiles:
-        href = _resolve_internal_url(tile["link"], current_slug) or "#"
-        image_ref = _resolve_image_ref(tile["image"], current_slug)
-        summary = _render_inline_markdown(tile["summary"])
+        # Robust field access for varying schemas (JSON vs Pipe)
+        link = tile.get("link") or tile.get("url") or "#"
+        href = _resolve_internal_url(link, current_slug) or "#"
+        
+        image_ref = _resolve_image_ref(tile.get("image", ""), current_slug)
+        
+        raw_summary = tile.get("summary") or tile.get("teaser") or tile.get("description") or ""
+        summary = _render_inline_markdown(raw_summary)
+        
         cards.append(
             f"<a class=\"tile-card\" href=\"{_escape(href)}\">"
-            f"<div class=\"tile-media\"><img src=\"{image_ref}\" alt=\"{_escape(tile['title'])} image\" /></div>"
-            f"<div><h3>{_escape(tile['title'])}</h3><p>{summary}</p></div>"
+            f"<div class=\"tile-media\"><img src=\"{image_ref}\" alt=\"{_escape(tile.get('title', ''))} image\" /></div>"
+            f"<div><h3>{_escape(tile.get('title', ''))}</h3><p>{summary}</p></div>"
             f"</a>"
         )
     title = _escape(section.get("title", "Research tiles"))
@@ -922,6 +935,57 @@ def render_research_tiles(section, current_slug: str):
 <section class=\"fade-in research-tiles\">
   <h2>{title}</h2>
   <div class=\"tile-grid\">{''.join(cards)}</div>
+</section>
+"""
+
+def render_profile_grid(section, current_slug: str):
+    source = section.get("source_md", "")
+    try:
+        data = json.loads(_read_block(source))
+    except (ValueError, FileNotFoundError):
+        return ""
+        
+    cards = []
+    for person in data:
+        image_ref = _resolve_image_ref(person.get("image", ""), current_slug)
+        cards.append(
+            f"<div class=\"card profile-card\">"
+            f"<div class=\"profile-media\"><img src=\"{image_ref}\" alt=\"{_escape(person.get('name', ''))}\" /></div>"
+            f"<div><h3>{_escape(person.get('name', ''))}</h3>"
+            f"<div class=\"accent\">{_escape(person.get('role', ''))}</div>"
+            f"<p>{_escape(person.get('bio', ''))}</p></div>"
+            f"</div>"
+        )
+    heading = _escape(section.get("title", "Team"))
+    return f"""
+<section class=\"fade-in\">
+  <h2>{heading}</h2>
+  <div class=\"grid profile-grid\">{''.join(cards)}</div>
+</section>
+"""
+
+def render_publication_list(section, current_slug: str):
+    source = section.get("source_md", "")
+    try:
+        data = json.loads(_read_block(source))
+    except (ValueError, FileNotFoundError):
+        return ""
+
+    rows = []
+    for pub in data:
+        link = pub.get("link", "#")
+        rows.append(
+            f"<div class=\"pub-row\">"
+            f"<div><strong><a href=\"{_escape(link)}\">{_escape(pub.get('title', ''))}</a></strong></div>"
+            f"<div>{_escape(pub.get('authors', ''))}</div>"
+            f"<div class=\"accent\">{_escape(pub.get('venue', ''))}, {pub.get('year', '')}</div>"
+            f"</div>"
+        )
+    heading = _escape(section.get("title", "Publications"))
+    return f"""
+<section class=\"fade-in\">
+  <h2>{heading}</h2>
+  <div class=\"publication-list\">{''.join(rows)}</div>
 </section>
 """
 
@@ -977,6 +1041,12 @@ def render_sections(sections, current_slug: str, digests=None, digest_limit=None
             continue
         if kind == "research_tiles":
             blocks.append(render_research_tiles(section, current_slug))
+            continue
+        if kind == "profile_grid":
+            blocks.append(render_profile_grid(section, current_slug))
+            continue
+        if kind == "publication_list":
+            blocks.append(render_publication_list(section, current_slug))
             continue
         if kind == "linkhub" and links is not None:
             link_cards = "".join(
