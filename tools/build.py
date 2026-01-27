@@ -1766,6 +1766,12 @@ def write_site():
 
     SITE_DIR.mkdir(parents=True, exist_ok=True)
     copy_assets()
+    
+    # Copy CNAME if exists
+    cname_path = CONTENT_DIR / "CNAME"
+    if cname_path.exists():
+        write_file(SITE_DIR / "CNAME", cname_path.read_text().strip())
+
     write_subscribe_php()
     write_contact_php()
     write_data_protection()
